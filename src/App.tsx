@@ -65,12 +65,15 @@ type Project = {
   id: string;
   name: string;
   updatedAt: string;
+  deploymentUrl?: string;
 };
 
 type FileData = {
   name: string;
   content: string;
 };
+
+const generateId = () => Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<'landing' | 'chat' | 'dashboard' | 'editor'>('landing');
@@ -83,6 +86,7 @@ export default function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+  const [isDeploying, setIsDeploying] = useState(false);
 
   const [files, setFiles] = useState<FileData[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
@@ -92,7 +96,7 @@ export default function App() {
 
   const handleNewProject = () => {
     const newProject: Project = {
-      id: Date.now().toString(),
+      id: generateId(),
       name: 'NEW PROJECT ' + (projects.length + 1),
       updatedAt: 'Just now'
     };
@@ -263,11 +267,69 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [files]);
 
+  const handleDeploy = async () => {
+    if (files.length === 0) return;
+    if (currentProject.deploymentUrl) {
+      const aiMessage: Message = {
+        id: generateId(),
+        role: 'ai',
+        text: `⚠️ **Deployment already exists for this project.**\n\nYou can view it here: [${currentProject.deploymentUrl}](${currentProject.deploymentUrl})\n\nTo prevent unnecessary costs and multiple links, Gear Studio only allows one deployment per project.`,
+        status: 'done'
+      };
+      setMessages(prev => [...prev, aiMessage]);
+      setCurrentPage('chat');
+      return;
+    }
+    setIsDeploying(true);
+    try {
+      const response = await fetch('/api/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: currentProject.name.toLowerCase().replace(/\s+/g, '-'),
+          files: files
+        })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        const deploymentUrl = data.url;
+        const aiMessage: Message = {
+          id: generateId(),
+          role: 'ai',
+          text: `🚀 **Project deployed successfully!**\n\nYour project is live at: [${deploymentUrl}](${deploymentUrl})\n\nInspect deployment: [Vercel Dashboard](${data.inspectUrl})`,
+          status: 'done'
+        };
+        setMessages(prev => [...prev, aiMessage]);
+        
+        // Update current project and projects list with deployment URL
+        const updatedProject = { ...currentProject, deploymentUrl };
+        setCurrentProject(updatedProject);
+        setProjects(prev => prev.map(p => p.id === currentProject.id ? updatedProject : p));
+        
+        setCurrentPage('chat');
+      } else {
+        throw new Error(data.error || 'Deployment failed');
+      }
+    } catch (error: any) {
+      const aiMessage: Message = {
+        id: generateId(),
+        role: 'ai',
+        text: `❌ **Deployment failed**\n\n${error.message}`,
+        isError: true,
+        status: 'done'
+      };
+      setMessages(prev => [...prev, aiMessage]);
+      setCurrentPage('chat');
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
   const handleSendMessage = async () => {
     if (!inputValue.trim() && images.length === 0) return;
 
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: generateId(),
       role: 'user',
       text: inputValue,
     };
@@ -277,7 +339,7 @@ export default function App() {
     setInputValue('');
     setIsGenerating(true);
     setShowPreview(false);
-    const aiMessageId = Date.now().toString();
+    const aiMessageId = generateId();
 
     try {
       const history = messages.map(m => ({
@@ -405,7 +467,7 @@ export default function App() {
           return prev.map(m => m.id === aiMessageId ? { ...m, text: errorMessage, isError: true, status: 'done' } : m);
         }
         return [...prev, {
-          id: Date.now().toString(),
+          id: generateId(),
           role: 'ai',
           text: errorMessage,
           isError: true,
@@ -636,6 +698,15 @@ export default function App() {
             >
               <Code className="w-4 h-4" />
             </button>
+            <div className="h-4 w-[1px] bg-[#262626] mx-1" />
+            <button 
+              onClick={handleDeploy}
+              disabled={isDeploying || files.length === 0}
+              className={`p-1.5 rounded transition-all ${isDeploying ? 'bg-blue-600/20 text-blue-400' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
+              title="Deploy to Vercel"
+            >
+              {isDeploying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+            </button>
           </div>
         </div>
 
@@ -645,13 +716,83 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 relative">
           <button 
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors"
+            className={`p-1.5 rounded transition-colors ${isMenuOpen ? 'bg-[#262626] text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
           >
             <Menu className="w-4 h-4" />
           </button>
+
+          <AnimatePresence>
+            {isMenuOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-30" 
+                  onClick={() => setIsMenuOpen(false)} 
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute top-full right-0 mt-2 w-48 bg-[#0F0F0F] border border-[#262626] rounded-xl shadow-2xl z-40 overflow-hidden"
+                >
+                  <div className="p-2 space-y-1">
+                    <button 
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        // Export logic
+                        const blob = new Blob([JSON.stringify({ project: currentProject, files }, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${currentProject.name.toLowerCase().replace(/\s+/g, '-')}-export.json`;
+                        a.click();
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Export Project</span>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        // Versions logic (placeholder)
+                        const aiMessage: Message = {
+                          id: generateId(),
+                          role: 'ai',
+                          text: `📜 **Version History**\n\n- **v1.0.0** (Initial Build): ${currentProject.updatedAt}\n\n*Version control is currently in beta. More features coming soon!*`,
+                          status: 'done'
+                        };
+                        setMessages(prev => [...prev, aiMessage]);
+                        setCurrentPage('chat');
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
+                    >
+                      <History className="w-3.5 h-3.5" />
+                      <span>Version History</span>
+                    </button>
+                    <div className="h-[1px] bg-[#262626] my-1" />
+                    <button 
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        if (currentProject.deploymentUrl) {
+                          window.open(currentProject.deploymentUrl, '_blank');
+                        } else {
+                          handleDeploy();
+                        }
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-blue-500 hover:bg-blue-500/10 transition-all"
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>{currentProject.deploymentUrl ? 'View Deployment' : 'Deploy to Vercel'}</span>
+                    </button>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
         </div>
       </header>
 
