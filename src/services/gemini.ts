@@ -1,6 +1,7 @@
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const apiKey = import.meta.env.VITE_GEAR_API || process.env.GEMINI_API_KEY;
+const ai = new GoogleGenAI({ apiKey });
 
 const SYSTEM_INSTRUCTION = `You are Gear AI, a world-class engineer and product designer. Your goal is to turn natural language into polished, production-ready web applications.
 

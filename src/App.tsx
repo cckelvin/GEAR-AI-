@@ -104,6 +104,7 @@ export default function App() {
     ]);
     setActiveFileIndex(0);
     setCurrentPage('chat');
+    setShowPreview(false);
   };
 
   const deleteProject = (id: string, e: React.MouseEvent) => {
@@ -270,6 +271,7 @@ export default function App() {
     const currentInput = inputValue;
     setInputValue('');
     setIsGenerating(true);
+    setShowPreview(false);
 
     try {
       const history = messages.map(m => ({
@@ -509,7 +511,7 @@ export default function App() {
             <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">
               <Code className="w-4 h-4 text-white" />
             </div>
-            <span className="font-black text-xs tracking-tighter">GEAR AI</span>
+            <span className="font-black text-xs tracking-tighter uppercase">GEAR STUDIO</span>
           </div>
           <div className="h-4 w-[1px] bg-[#262626]" />
           <div className="flex items-center gap-1">
@@ -517,15 +519,18 @@ export default function App() {
               <Terminal className="w-4 h-4" />
             </button>
             <button 
-              onClick={() => setShowPreview(true)}
-              className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" 
+              onClick={() => setShowPreview(!showPreview)}
+              className={`p-1.5 rounded transition-colors ${showPreview ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
               title="Preview Project"
             >
               <Eye className="w-4 h-4" />
             </button>
             <button 
-              onClick={() => setCurrentPage('editor')}
-              className={`p-1.5 rounded transition-colors ${currentPage === 'editor' ? 'bg-[#262626] text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
+              onClick={() => {
+                setCurrentPage('editor');
+                setShowPreview(false);
+              }}
+              className={`p-1.5 rounded transition-colors ${currentPage === 'editor' && !showPreview ? 'bg-[#262626] text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
               title="View Code"
             >
               <Code className="w-4 h-4" />
@@ -566,6 +571,7 @@ export default function App() {
                 onClick={() => {
                   setActiveFileIndex(idx);
                   setCurrentPage('editor');
+                  setShowPreview(false);
                 }}
                 className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-3 transition-all group ${
                   activeFileIndex === idx && currentPage === 'editor'
@@ -603,20 +609,41 @@ export default function App() {
               </p>
               <div className="grid grid-cols-2 gap-3 w-full max-w-lg">
                 <button 
-                  onClick={() => setInputValue("Build a modern landing page for a SaaS product")}
+                  onClick={() => {
+                    setInputValue("Build a modern landing page for a SaaS product");
+                    setShowPreview(false);
+                  }}
                   className="p-4 bg-[#0F0F0F] border border-[#262626] rounded-xl text-left hover:border-blue-600/50 transition-all group"
                 >
                   <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-1">Landing Page</p>
                   <p className="text-xs text-gray-400 group-hover:text-gray-200">Modern SaaS landing page with dark theme</p>
                 </button>
                 <button 
-                  onClick={() => setInputValue("Create a real-time chat application with glassmorphism UI")}
+                  onClick={() => {
+                    setInputValue("Create a real-time chat application with glassmorphism UI");
+                    setShowPreview(false);
+                  }}
                   className="p-4 bg-[#0F0F0F] border border-[#262626] rounded-xl text-left hover:border-blue-600/50 transition-all group"
                 >
                   <p className="text-[10px] font-bold text-purple-500 uppercase tracking-widest mb-1">Web App</p>
                   <p className="text-xs text-gray-400 group-hover:text-gray-200">Real-time chat with glassmorphism design</p>
                 </button>
               </div>
+            </div>
+          ) : showPreview ? (
+            <div className="flex-1 flex flex-col overflow-hidden bg-white">
+              {isSyncing && (
+                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-10">
+                  <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-4" />
+                  <p className="text-sm font-bold text-gray-900 uppercase tracking-widest animate-pulse">Bundling Project...</p>
+                </div>
+              )}
+              <iframe
+                srcDoc={combinedCode}
+                className="w-full h-full border-none"
+                title="Preview"
+                sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"
+              />
             </div>
           ) : (
             <div className="flex-1 flex flex-col overflow-hidden">
@@ -780,44 +807,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Preview Overlay */}
-      <AnimatePresence>
-        {showPreview && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fixed inset-4 bg-[#0A0A0A] border border-[#262626] rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden"
-          >
-            <div className="h-12 border-b border-[#262626] flex items-center justify-between px-6 bg-[#0F0F0F]">
-              <div className="flex items-center gap-3">
-                <Globe className="w-4 h-4 text-blue-400" />
-                <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Live Preview</span>
-              </div>
-              <button 
-                onClick={() => setShowPreview(false)}
-                className="p-2 hover:bg-[#262626] rounded-lg text-gray-500 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="flex-1 relative bg-white">
-              {isSyncing && (
-                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-10">
-                  <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-4" />
-                  <p className="text-sm font-bold text-gray-900 uppercase tracking-widest animate-pulse">Bundling Project...</p>
-                </div>
-              )}
-              <iframe
-                srcDoc={combinedCode}
-                className="w-full h-full border-none"
-                title="Preview"
-                sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
