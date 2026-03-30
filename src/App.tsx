@@ -175,49 +175,35 @@ export default function App() {
       setIsSyncing(true);
       const htmlFile = files.find(f => f.name === 'index.html');
       let html = htmlFile?.content || '<div id="root"></div>';
-      const css = files.find(f => f.name === 'style.css')?.content || '';
       
-      // If the user provided a full HTML document, we'll extract the body content
-      // or just use it as is if it doesn't have a body tag.
+      // Extract body content if index.html is a full document
       if (html.includes('<body')) {
         const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
         if (bodyMatch) html = bodyMatch[1];
       }
 
-      // Prepare all files for the preview
-      const scripts = files
-        .filter(f => f.name.endsWith('.js') || f.name.endsWith('.tsx') || f.name.endsWith('.jsx') || f.name.endsWith('.ts'))
-        .map(f => `
-          <script type="text/babel" data-presets="react,typescript" data-filename="${f.name}">
-            ${f.content}
-          </script>
-        `).join('\n');
+      // Collect all CSS files
+      const cssFiles = files.filter(f => f.name.endsWith('.css'));
+      const cssContent = cssFiles.map(f => `/* ${f.name} */\n${f.content}`).join('\n\n');
+
+      // Collect all JS files as modules
+      const jsFiles = files.filter(f => f.name.endsWith('.js') || f.name.endsWith('.ts'));
+      const scripts = jsFiles.map(f => `
+        <script type="module" data-filename="${f.name}">
+          ${f.content}
+        </script>
+      `).join('\n');
 
       const combined = `
         <!DOCTYPE html>
-        <html>
+        <html lang="en">
           <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <script src="https://cdn.tailwindcss.com"></script>
             <script src="https://unpkg.com/lucide@latest"></script>
-            <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-            <script type="importmap">
-            {
-              "imports": {
-                "react": "https://esm.sh/react@18",
-                "react-dom": "https://esm.sh/react-dom@18",
-                "react-dom/client": "https://esm.sh/react-dom@18/client",
-                "lucide-react": "https://esm.sh/lucide-react",
-                "framer-motion": "https://esm.sh/framer-motion",
-                "motion/react": "https://esm.sh/motion/react",
-                "clsx": "https://esm.sh/clsx",
-                "tailwind-merge": "https://esm.sh/tailwind-merge"
-              }
-            }
-            </script>
             <style>
-              ${css}
+              ${cssContent}
               body { margin: 0; padding: 0; background: #000; color: #fff; min-height: 100vh; }
               #root { min-height: 100vh; }
               .markdown-body { color: inherit; }
@@ -226,37 +212,23 @@ export default function App() {
           <body>
             ${html}
             ${scripts}
-            <script type="text/babel" data-presets="react,typescript">
-              // Wait for all scripts to be transpiled and executed
-              window.addEventListener('load', () => {
-                // Initialize Lucide icons if available
+            <script type="module">
+              // Initialize Lucide icons
+              const initLucide = () => {
                 if (window.lucide) {
                   window.lucide.createIcons();
                 }
+              };
 
-                if (window.React && window.ReactDOM && document.getElementById('root')) {
-                  const root = ReactDOM.createRoot(document.getElementById('root'));
-                  // Try to find the App component in the global scope
-                  const App = window.App || (typeof App !== 'undefined' ? App : null);
-                  if (App) {
-                    root.render(<App />);
-                  }
-                }
-              });
-              
-              // Immediate check in case load already fired
               if (document.readyState === 'complete') {
-                if (window.lucide) {
-                  window.lucide.createIcons();
-                }
-                if (window.React && window.ReactDOM && document.getElementById('root')) {
-                  const root = ReactDOM.createRoot(document.getElementById('root'));
-                  const App = window.App || (typeof App !== 'undefined' ? App : null);
-                  if (App) {
-                    root.render(<App />);
-                  }
-                }
+                initLucide();
+              } else {
+                window.addEventListener('load', initLucide);
               }
+
+              // Also watch for DOM changes to re-initialize icons
+              const observer = new MutationObserver(initLucide);
+              observer.observe(document.body, { childList: true, subtree: true });
             </script>
           </body>
         </html>
