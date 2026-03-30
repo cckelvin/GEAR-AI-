@@ -43,7 +43,8 @@ import {
   Search,
   Box,
   Cpu,
-  Layers
+  Layers,
+  Scan
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
@@ -450,6 +451,21 @@ export default function App() {
       setIsGenerating(false);
       setImages([]);
     }
+  };
+
+  const handleAnalyze = () => {
+    if (images.length === 0) {
+      const aiMessage: Message = {
+        id: generateId(),
+        role: 'ai',
+        text: "Please upload an image first so I can analyze it for you! 📸",
+        status: 'done'
+      };
+      setMessages(prev => [...prev, aiMessage]);
+      return;
+    }
+    setInputValue("Analyze these images and tell me how I can implement them or improve my code based on them.");
+    handleSendMessage();
   };
 
   if (currentPage === 'landing') {
@@ -974,7 +990,34 @@ export default function App() {
           </div>
 
           <div className="p-4 border-t border-[#262626] space-y-3">
+            {images.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-1">
+                {images.map((img, idx) => (
+                  <div key={idx} className="relative group">
+                    <img 
+                      src={`data:${img.mimeType};base64,${img.data}`} 
+                      alt="Upload" 
+                      className="w-12 h-12 rounded-lg object-cover border border-[#333]"
+                    />
+                    <button 
+                      onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
+                      className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="relative">
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept="image/*" 
+                multiple 
+                onChange={handleImageUpload} 
+              />
               <textarea
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
@@ -998,13 +1041,28 @@ export default function App() {
 
             <div className="flex items-center justify-between px-1">
               <div className="flex items-center gap-1">
-                <button className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" title="Attach Image">
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" 
+                  title="Attach Image"
+                >
                   <ImageIcon className="w-3.5 h-3.5" />
+                </button>
+                <button 
+                  onClick={handleAnalyze}
+                  className={`p-1.5 rounded transition-colors ${images.length > 0 ? 'text-blue-500 hover:bg-blue-500/10' : 'text-gray-500 hover:bg-[#262626] hover:text-white'}`} 
+                  title="Analyze Images"
+                >
+                  <Scan className="w-3.5 h-3.5" />
                 </button>
                 <button className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" title="Voice Input">
                   <Mic className="w-3.5 h-3.5" />
                 </button>
-                <button className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" title="Reset Chat">
+                <button 
+                  onClick={() => setMessages([])}
+                  className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" 
+                  title="Reset Chat"
+                >
                   <RotateCcw className="w-3.5 h-3.5" />
                 </button>
               </div>
