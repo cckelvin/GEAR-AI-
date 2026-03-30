@@ -82,6 +82,7 @@ export default function App() {
   const [inputValue, setInputValue] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   const [files, setFiles] = useState<FileData[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
@@ -99,8 +100,7 @@ export default function App() {
     setCurrentProject(newProject);
     setMessages([]);
     setFiles([
-      { name: 'index.html', content: '<!DOCTYPE html>\n<html>\n<body>\n  <div id="root"></div>\n</body>\n</html>' },
-      { name: 'App.tsx', content: 'import React from \'https://esm.sh/react\';\n\nexport default function App() {\n  return (\n    <div className="p-8">\n      <h1 className="text-2xl font-bold">Hello World</h1>\n    </div>\n  );\n}' }
+      { name: 'index.html', content: '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>New Project</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-gray-50 text-gray-900 font-sans">\n  <div id="app" class="p-8">\n    <h1 class="text-4xl font-black tracking-tighter mb-4">Hello World</h1>\n    <p class="text-gray-500">Welcome to your new Gear Studio project.</p>\n  </div>\n</body>\n</html>' }
     ]);
     setActiveFileIndex(0);
     setCurrentPage('chat');
@@ -122,6 +122,11 @@ export default function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 3500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const [images, setImages] = useState<{ data: string, mimeType: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -272,6 +277,7 @@ export default function App() {
     setInputValue('');
     setIsGenerating(true);
     setShowPreview(false);
+    const aiMessageId = Date.now().toString();
 
     try {
       const history = messages.map(m => ({
@@ -283,10 +289,29 @@ export default function App() {
       let fullResponse = "";
       let lastParsedFiles: FileData[] = [...files];
       
+      // Add initial AI message for typing effect
+      setMessages(prev => [...prev, {
+        id: aiMessageId,
+        role: 'ai',
+        text: '',
+        status: 'generating'
+      }]);
+
       for await (const chunk of stream) {
         const chunkText = chunk.text;
         fullResponse += chunkText;
         
+        // Update AI message text for typing effect
+        let currentChatText = fullResponse;
+        const codeBlockRegexForChat = /```[\s\S]*?```/g;
+        if (codeBlockRegexForChat.test(fullResponse)) {
+          currentChatText = fullResponse.replace(codeBlockRegexForChat, '').trim();
+        }
+        
+        setMessages(prev => prev.map(m => 
+          m.id === aiMessageId ? { ...m, text: currentChatText || "Coding..." } : m
+        ));
+
         // Parse for file updates in real-time
         const codeBlockRegex = /```(\w+)?(?::([a-zA-Z0-9._\-/]+))?\n([\s\S]*?)```/g;
         const fileTagRegex = /FILE:\s*([a-zA-Z0-9._-]+)\n([\s\S]*?)(?=FILE:|$|```)/g;
@@ -343,18 +368,15 @@ export default function App() {
       }
 
       let chatText = fullResponse;
-      const codeBlockRegex = /```[\s\S]*?```/g;
-      if (codeBlockRegex.test(fullResponse)) {
-        chatText = fullResponse.replace(codeBlockRegex, '').trim();
+      const codeBlockRegexFinal = /```[\s\S]*?```/g;
+      if (codeBlockRegexFinal.test(fullResponse)) {
+        chatText = fullResponse.replace(codeBlockRegexFinal, '').trim();
         if (!chatText) chatText = "I've updated the project files in the editor.";
       }
 
-      const aiMessage: Message = {
-        id: Date.now().toString(),
-        role: 'ai',
-        text: chatText,
-      };
-      setMessages(prev => [...prev, aiMessage]);
+      setMessages(prev => prev.map(m => 
+        m.id === aiMessageId ? { ...m, text: chatText, status: 'done' } : m
+      ));
 
     } catch (error: any) {
       console.error("Error generating code:", error);
@@ -377,13 +399,19 @@ export default function App() {
         if (error?.message) errorMessage = error.message;
       }
 
-      const aiMessage: Message = {
-        id: Date.now().toString(),
-        role: 'ai',
-        text: errorMessage,
-        isError: true,
-      };
-      setMessages(prev => [...prev, aiMessage]);
+      setMessages(prev => {
+        const exists = prev.some(m => m.id === aiMessageId);
+        if (exists) {
+          return prev.map(m => m.id === aiMessageId ? { ...m, text: errorMessage, isError: true, status: 'done' } : m);
+        }
+        return [...prev, {
+          id: Date.now().toString(),
+          role: 'ai',
+          text: errorMessage,
+          isError: true,
+          status: 'done'
+        }];
+      });
     } finally {
       setIsGenerating(false);
       setImages([]);
@@ -392,7 +420,43 @@ export default function App() {
 
   if (currentPage === 'landing') {
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <>
+        <AnimatePresence>
+          {showSplash && (
+            <motion.div
+              initial={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.8, ease: "easeInOut" }}
+              className="fixed inset-0 z-[100] bg-[#0A0A0A] flex items-center justify-center overflow-hidden"
+            >
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ duration: 1, ease: "easeOut" }}
+                className="relative w-full h-full flex items-center justify-center p-8"
+              >
+                <img
+                  src="https://www.dropbox.com/scl/fi/u97h69xds0zmerbe69pmw/1774586031153-2.png?rlkey=tg24ppj129i9xv5286n8owh5m&st=dp6m0lrf&dl=1"
+                  alt="Gear Studio Splash"
+                  className="max-w-full max-h-full object-contain"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4">
+                  <div className="w-48 h-1 bg-[#262626] rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: "100%" }}
+                      transition={{ duration: 3, ease: "easeInOut" }}
+                      className="h-full bg-blue-600"
+                    />
+                  </div>
+                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-[0.3em] animate-pulse">Initializing Gear Studio...</span>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
         {/* Navigation */}
         <nav className="border-b border-slate-200 bg-white/80 backdrop-blur-md sticky top-0 z-50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -499,11 +563,48 @@ export default function App() {
           </div>
         </footer>
       </div>
+    </>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[#0A0A0A] text-white font-sans overflow-hidden">
+    <>
+      <AnimatePresence>
+        {showSplash && (
+          <motion.div
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.8, ease: "easeInOut" }}
+            className="fixed inset-0 z-[100] bg-[#0A0A0A] flex items-center justify-center overflow-hidden"
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 1, ease: "easeOut" }}
+              className="relative w-full h-full flex items-center justify-center p-8"
+            >
+              <img
+                src="https://www.dropbox.com/scl/fi/u97h69xds0zmerbe69pmw/1774586031153-2.png?rlkey=tg24ppj129i9xv5286n8owh5m&st=dp6m0lrf&dl=1"
+                alt="Gear Studio Splash"
+                className="max-w-full max-h-full object-contain"
+                referrerPolicy="no-referrer"
+              />
+              <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4">
+                <div className="w-48 h-1 bg-[#262626] rounded-full overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: "100%" }}
+                    transition={{ duration: 3, ease: "easeInOut" }}
+                    className="h-full bg-blue-600"
+                  />
+                </div>
+                <span className="text-[10px] font-black text-gray-500 uppercase tracking-[0.3em] animate-pulse">Initializing Gear Studio...</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <div className="flex flex-col h-screen bg-[#0A0A0A] text-white font-sans overflow-hidden">
       {/* Top Header */}
       <header className="h-12 border-b border-[#262626] flex items-center justify-between px-4 bg-[#0F0F0F] z-20">
         <div className="flex items-center gap-4">
@@ -808,6 +909,7 @@ export default function App() {
       </div>
 
     </div>
+    </>
   );
 }
 
