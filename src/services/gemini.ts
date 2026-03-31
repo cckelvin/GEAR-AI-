@@ -28,7 +28,7 @@ Core Directives:
 11. Built-in Integrations (waveDB):
    - Gear Studio provides a special built-in service called 'waveDB' for database and storage needs.
    - waveDB is powered by Supabase and uses the following schema:
-     - users: { id, email, username, created_at, plan, daily_generations, last_reset }
+     - users: { id, email, username, phone_no, created_at, plan, daily_generations, last_reset }
      - projects: { id, user_id, name, is_private, deployment_url, status, created_at, updated_at }
      - project_files: { id, project_id, file_name, content, created_at }
      - deployments: { id, project_id, url, provider, status, created_at }

@@ -12,6 +12,7 @@ export type User = {
   id: string;
   email: string;
   username?: string;
+  phone_no?: string;
   created_at: string;
   plan: 'free' | 'pro';
   daily_generations: number;

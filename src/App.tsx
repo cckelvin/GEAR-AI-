@@ -96,6 +96,7 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState('');
   const [authOtp, setAuthOtp] = useState('');
   const [authUsername, setAuthUsername] = useState('');
+  const [authPhone, setAuthPhone] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [showShelf, setShowShelf] = useState(false);
@@ -219,7 +220,8 @@ export default function App() {
       // Update user metadata first for immediate session update
       const { error: metaError } = await supabase.auth.updateUser({
         data: { 
-          username: authUsername
+          username: authUsername,
+          phone_no: authPhone
         }
       });
       if (metaError) throw metaError;
@@ -231,6 +233,7 @@ export default function App() {
           id: session.user.id,
           email: session.user.email,
           username: authUsername,
+          phone_no: authPhone,
           updated_at: new Date().toISOString(),
         });
       
@@ -763,6 +766,20 @@ export default function App() {
                     onChange={(e) => setAuthUsername(e.target.value)}
                     className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
                     placeholder="johndoe"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">phone.no</label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input 
+                    type="tel" 
+                    required
+                    value={authPhone}
+                    onChange={(e) => setAuthPhone(e.target.value)}
+                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="+1 (555) 000-0000"
                   />
                 </div>
               </div>
