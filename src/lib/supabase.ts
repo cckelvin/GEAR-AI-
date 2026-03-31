@@ -11,8 +11,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export type User = {
   id: string;
   email: string;
-  display_name?: string;
-  phone?: string;
   created_at: string;
   plan: 'free' | 'pro';
   daily_generations: number;

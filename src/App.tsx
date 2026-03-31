@@ -90,13 +90,11 @@ const generateId = () => Math.random().toString(36).substring(2, 15) + Date.now(
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<'landing' | 'chat' | 'dashboard' | 'editor' | 'integrations' | 'auth'>('landing');
-  const [authStep, setAuthStep] = useState<'signup' | 'otp' | 'profile' | 'login'>('signup');
+  const [authStep, setAuthStep] = useState<'signup' | 'otp' | 'login'>('signup');
   const [session, setSession] = useState<any>(null);
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authOtp, setAuthOtp] = useState('');
-  const [authUsername, setAuthUsername] = useState('');
-  const [authPhone, setAuthPhone] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [showShelf, setShowShelf] = useState(false);
@@ -202,42 +200,6 @@ export default function App() {
       });
       if (error) throw error;
       setSession(session);
-      setAuthStep('profile');
-    } catch (err: any) {
-      setAuthError(err.message);
-    } finally {
-      setIsAuthLoading(false);
-    }
-  };
-
-  const handleCompleteProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsAuthLoading(true);
-    setAuthError(null);
-    try {
-      if (!session?.user) throw new Error("No active session");
-      
-      // Update user metadata first for immediate session update
-      const { error: metaError } = await supabase.auth.updateUser({
-        data: { 
-          display_name: authUsername,
-          phone: authPhone
-        }
-      });
-      if (metaError) throw metaError;
-
-      // Then update the users table
-      const { error } = await supabase
-        .from('users')
-        .upsert({
-          id: session.user.id,
-          email: session.user.email,
-          display_name: authUsername,
-          phone: authPhone,
-          updated_at: new Date().toISOString(),
-        });
-      
-      if (error) throw error;
       setCurrentPage('chat');
     } catch (err: any) {
       setAuthError(err.message);
@@ -251,24 +213,12 @@ export default function App() {
     setIsAuthLoading(true);
     setAuthError(null);
     try {
-      const { error, data: { user } } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email: authEmail,
         password: authPassword,
       });
       if (error) throw error;
-      
-      // Check if profile is complete in users table
-      const { data: profile } = await supabase
-        .from('users')
-        .select('username')
-        .eq('id', user?.id)
-        .maybeSingle();
-        
-      if (!profile?.username) {
-        setAuthStep('profile');
-      } else {
-        setCurrentPage('chat');
-      }
+      setCurrentPage('chat');
     } catch (err: any) {
       setAuthError(err.message);
     } finally {
@@ -650,13 +600,11 @@ export default function App() {
             <h2 className="text-2xl font-bold tracking-tight">
               {authStep === 'signup' && 'Create Account'}
               {authStep === 'otp' && 'Verify Email'}
-              {authStep === 'profile' && 'Complete Profile'}
               {authStep === 'login' && 'Welcome Back'}
             </h2>
             <p className="text-gray-500 text-sm mt-2 text-center">
               {authStep === 'signup' && 'Join Gear Studio to start building.'}
               {authStep === 'otp' && `We've sent a 6-digit code to ${authEmail}`}
-              {authStep === 'profile' && 'Tell us a bit more about yourself.'}
               {authStep === 'login' && 'Sign in to your account.'}
             </p>
           </div>
@@ -749,46 +697,6 @@ export default function App() {
                 className="w-full text-xs text-gray-500 hover:text-white transition-colors"
               >
                 Back to Sign Up
-              </button>
-            </form>
-          )}
-
-          {authStep === 'profile' && (
-            <form onSubmit={handleCompleteProfile} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">username</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                  <input 
-                    type="text" 
-                    required
-                    value={authUsername}
-                    onChange={(e) => setAuthUsername(e.target.value)}
-                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                    placeholder="johndoe"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">phone.no</label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                  <input 
-                    type="tel" 
-                    required
-                    value={authPhone}
-                    onChange={(e) => setAuthPhone(e.target.value)}
-                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                    placeholder="+1 (555) 000-0000"
-                  />
-                </div>
-              </div>
-              <button 
-                type="submit"
-                disabled={isAuthLoading || !isSupabaseConfigured}
-                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
-              >
-                {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Complete Setup'}
               </button>
             </form>
           )}
