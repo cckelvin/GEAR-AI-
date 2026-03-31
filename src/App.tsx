@@ -220,8 +220,8 @@ export default function App() {
       // Update user metadata first for immediate session update
       const { error: metaError } = await supabase.auth.updateUser({
         data: { 
-          username: authUsername,
-          phone_no: authPhone
+          display_name: authUsername,
+          phone: authPhone
         }
       });
       if (metaError) throw metaError;
@@ -232,8 +232,8 @@ export default function App() {
         .upsert({
           id: session.user.id,
           email: session.user.email,
-          username: authUsername,
-          phone_no: authPhone,
+          display_name: authUsername,
+          phone: authPhone,
           updated_at: new Date().toISOString(),
         });
       
@@ -756,7 +756,7 @@ export default function App() {
           {authStep === 'profile' && (
             <form onSubmit={handleCompleteProfile} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">Username</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">username</label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                   <input 
