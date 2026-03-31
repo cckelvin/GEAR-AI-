@@ -44,11 +44,23 @@ import {
   Box,
   Cpu,
   Layers,
-  Scan
+  Scan,
+  FilePlus,
+  Share2,
+  Library,
+  Puzzle as PluginIcon,
+  Cpu as BuiltInIcon,
+  CheckCircle2,
+  User,
+  Phone,
+  Lock,
+  Mail,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 import { generateCodeResponse, generateCodeResponseStream } from './services/gemini';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
 
 type Message = {
   id: string;
@@ -77,7 +89,20 @@ type FileData = {
 const generateId = () => Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'landing' | 'chat' | 'dashboard' | 'editor'>('landing');
+  const [currentPage, setCurrentPage] = useState<'landing' | 'chat' | 'dashboard' | 'editor' | 'integrations' | 'auth'>('landing');
+  const [authStep, setAuthStep] = useState<'signup' | 'otp' | 'profile' | 'login'>('signup');
+  const [session, setSession] = useState<any>(null);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authOtp, setAuthOtp] = useState('');
+  const [authUsername, setAuthUsername] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
+  const [showShelf, setShowShelf] = useState(false);
+  const [connectedIntegrations, setConnectedIntegrations] = useState<string[]>([]);
+  const [integrationsTab, setIntegrationsTab] = useState<'builtin' | 'plugins'>('builtin');
+  const [configuringIntegration, setConfiguringIntegration] = useState<string | null>(null);
+  const [integrationFields, setIntegrationFields] = useState<Record<string, string>>({});
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [learningMode, setLearningMode] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -88,10 +113,14 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [isDeploying, setIsDeploying] = useState(false);
+  const [showDeployModal, setShowDeployModal] = useState(false);
+  const [images, setImages] = useState<{ data: string; mimeType: string }[]>([]);
 
   const [files, setFiles] = useState<FileData[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
+  const [codingFile, setCodingFile] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [projects, setProjects] = useState<Project[]>([]);
 
@@ -129,18 +158,143 @@ export default function App() {
   }, [messages]);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAuthLoading(true);
+    setAuthError(null);
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: authEmail,
+        password: authPassword,
+      });
+      if (error) throw error;
+      setAuthStep('otp');
+    } catch (err: any) {
+      setAuthError(err.message);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAuthLoading(true);
+    setAuthError(null);
+    try {
+      const { error, data: { session } } = await supabase.auth.verifyOtp({
+        email: authEmail,
+        token: authOtp,
+        type: 'signup',
+      });
+      if (error) throw error;
+      setSession(session);
+      setAuthStep('profile');
+    } catch (err: any) {
+      setAuthError(err.message);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleCompleteProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAuthLoading(true);
+    setAuthError(null);
+    try {
+      if (!session?.user) throw new Error("No active session");
+      
+      // Update user metadata first for immediate session update
+      const { error: metaError } = await supabase.auth.updateUser({
+        data: { 
+          username: authUsername
+        }
+      });
+      if (metaError) throw metaError;
+
+      // Then update the users table
+      const { error } = await supabase
+        .from('users')
+        .upsert({
+          id: session.user.id,
+          email: session.user.email,
+          username: authUsername,
+          updated_at: new Date().toISOString(),
+        });
+      
+      if (error) throw error;
+      setCurrentPage('chat');
+    } catch (err: any) {
+      setAuthError(err.message);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAuthLoading(true);
+    setAuthError(null);
+    try {
+      const { error, data: { user } } = await supabase.auth.signInWithPassword({
+        email: authEmail,
+        password: authPassword,
+      });
+      if (error) throw error;
+      
+      // Check if profile is complete in users table
+      const { data: profile } = await supabase
+        .from('users')
+        .select('username')
+        .eq('id', user?.id)
+        .maybeSingle();
+        
+      if (!profile?.username) {
+        setAuthStep('profile');
+      } else {
+        setCurrentPage('chat');
+      }
+    } catch (err: any) {
+      setAuthError(err.message);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setCurrentPage('landing');
+  };
+
+  useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 3500);
+    
+    // Auto-connect waveDB if environment variables are present
+    if (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) {
+      setConnectedIntegrations(prev => prev.includes('wavedb') ? prev : [...prev, 'wavedb']);
+    }
+    
     return () => clearTimeout(timer);
   }, []);
 
-  const [images, setImages] = useState<{ data: string, mimeType: string }[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
+    const uploadedFiles = e.target.files;
+    if (!uploadedFiles) return;
 
-    Array.from(files).forEach(file => {
+    Array.from(uploadedFiles).forEach(file => {
       const reader = new FileReader();
       reader.onloadend = () => {
         setImages(prev => [...prev, { 
@@ -178,9 +332,17 @@ export default function App() {
       let html = htmlFile?.content || '<div id="root"></div>';
       
       // Extract body content if index.html is a full document
+      let bodyContent = html;
+      let headContent = '';
+      
+      if (html.includes('<head')) {
+        const headMatch = html.match(/<head[^>]*>([\s\S]*)<\/head>/i);
+        if (headMatch) headContent = headMatch[1];
+      }
+      
       if (html.includes('<body')) {
         const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-        if (bodyMatch) html = bodyMatch[1];
+        if (bodyMatch) bodyContent = bodyMatch[1];
       }
 
       // Collect all CSS files
@@ -203,6 +365,7 @@ export default function App() {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <script src="https://cdn.tailwindcss.com"></script>
             <script src="https://unpkg.com/lucide@latest"></script>
+            ${headContent}
             <style>
               ${cssContent}
               body { margin: 0; padding: 0; background: #000; color: #fff; min-height: 100vh; }
@@ -211,12 +374,12 @@ export default function App() {
             </style>
           </head>
           <body>
-            ${html}
+            ${bodyContent}
             ${scripts}
             <script type="module">
               // Initialize Lucide icons
               const initLucide = () => {
-                if (window.lucide) {
+                if (window.lucide && typeof window.lucide.createIcons === 'function') {
                   window.lucide.createIcons();
                 }
               };
@@ -228,7 +391,11 @@ export default function App() {
               }
 
               // Also watch for DOM changes to re-initialize icons
-              const observer = new MutationObserver(initLucide);
+              const observer = new MutationObserver((mutations) => {
+                // Throttled re-init
+                if (window.lucideTimeout) clearTimeout(window.lucideTimeout);
+                window.lucideTimeout = setTimeout(initLucide, 100);
+              });
               observer.observe(document.body, { childList: true, subtree: true });
             </script>
           </body>
@@ -254,6 +421,7 @@ export default function App() {
       return;
     }
     setIsDeploying(true);
+    setShowDeployModal(false);
     try {
       const response = await fetch('/api/deploy', {
         method: 'POST',
@@ -322,9 +490,8 @@ export default function App() {
       
       const stream = await generateCodeResponseStream(currentInput, history, images, files);
       let fullResponse = "";
-      let lastParsedFiles: FileData[] = [...files];
       
-      // Add initial AI message for typing effect
+      // Add initial AI message
       setMessages(prev => [...prev, {
         id: aiMessageId,
         role: 'ai',
@@ -334,80 +501,77 @@ export default function App() {
 
       for await (const chunk of stream) {
         const chunkText = chunk.text;
+        if (!chunkText) continue;
+        
         fullResponse += chunkText;
         
-        // Update AI message text for typing effect
-        let currentChatText = fullResponse;
-        const codeBlockRegexForChat = /```[\s\S]*?```/g;
-        if (codeBlockRegexForChat.test(fullResponse)) {
-          currentChatText = fullResponse.replace(codeBlockRegexForChat, '').trim();
-        }
-        
+        // 1. Update Chat Text (filter out code blocks)
+        let currentChatText = fullResponse.replace(/```[\s\S]*?(?:```|$)/g, '').trim();
         setMessages(prev => prev.map(m => 
-          m.id === aiMessageId ? { ...m, text: currentChatText || "Coding..." } : m
+          m.id === aiMessageId ? { ...m, text: currentChatText || "Generating..." } : m
         ));
 
-        // Parse for file updates in real-time
-        const codeBlockRegex = /```(\w+)?(?::([a-zA-Z0-9._\-/]+))?\n([\s\S]*?)```/g;
+        // 2. Incremental File Parsing
+        const codeBlockRegex = /```(\w+)?(?::([a-zA-Z0-9._\-/]+))?\n([\s\S]*?)(?:```|$)/g;
         const fileTagRegex = /FILE:\s*([a-zA-Z0-9._-]+)\n([\s\S]*?)(?=FILE:|$|```)/g;
         
-        let foundFiles = false;
-        let currentFiles = [...lastParsedFiles];
+        let currentFiles = [...files];
+        let activeCodingFile = "";
 
+        // Parse code blocks
         let blockMatch;
         while ((blockMatch = codeBlockRegex.exec(fullResponse)) !== null) {
-          const fileNameFromLabel = blockMatch[2];
+          const fileName = blockMatch[2];
           const content = blockMatch[3].trim();
-          foundFiles = true;
           
-          let fileName = fileNameFromLabel;
-          if (!fileName) {
-            if (content.includes('<html') || content.includes('<div')) fileName = 'index.html';
-            else if (content.includes('{') && content.includes(':')) fileName = 'style.css';
-            else if (content.includes('import') || content.includes('export') || content.includes('const')) fileName = 'App.tsx';
-            else fileName = 'script.js';
-          }
-
-          const index = currentFiles.findIndex(f => f.name === fileName);
-          if (index > -1) {
-            currentFiles[index] = { ...currentFiles[index], content };
-          } else {
-            currentFiles.push({ name: fileName, content });
+          if (fileName) {
+            activeCodingFile = fileName;
+            const index = currentFiles.findIndex(f => f.name === fileName);
+            if (index > -1) {
+              currentFiles[index] = { ...currentFiles[index], content };
+            } else {
+              currentFiles.push({ name: fileName, content });
+            }
           }
         }
 
+        // Parse FILE: tags
         let tagMatch;
         while ((tagMatch = fileTagRegex.exec(fullResponse)) !== null) {
           const fileName = tagMatch[1].trim();
           const content = tagMatch[2].trim();
-          foundFiles = true;
           
-          const index = currentFiles.findIndex(f => f.name === fileName);
-          if (index > -1) {
-            currentFiles[index] = { ...currentFiles[index], content };
-          } else {
-            currentFiles.push({ name: fileName, content });
+          if (fileName) {
+            activeCodingFile = fileName;
+            const index = currentFiles.findIndex(f => f.name === fileName);
+            if (index > -1) {
+              currentFiles[index] = { ...currentFiles[index], content };
+            } else {
+              currentFiles.push({ name: fileName, content });
+            }
           }
         }
 
-        if (foundFiles) {
-          lastParsedFiles = currentFiles;
+        if (activeCodingFile) {
           setFiles(currentFiles);
-          setCurrentPage('editor');
+          setCodingFile(activeCodingFile);
+          const newIndex = currentFiles.findIndex(f => f.name === activeCodingFile);
+          if (newIndex > -1) {
+            setActiveFileIndex(newIndex);
+            setCurrentPage('editor');
+          }
         }
       }
 
-      // Final processing for project name and chat message
+      setCodingFile(null);
+
+      // Final processing for project name
       if (currentProject.id === '0' && messages.length === 0) {
         setCurrentProject(prev => ({ ...prev, name: currentInput.toUpperCase().slice(0, 20) }));
       }
 
-      let chatText = fullResponse;
-      const codeBlockRegexFinal = /```[\s\S]*?```/g;
-      if (codeBlockRegexFinal.test(fullResponse)) {
-        chatText = fullResponse.replace(codeBlockRegexFinal, '').trim();
-        if (!chatText) chatText = "I've updated the project files in the editor.";
-      }
+      let chatText = fullResponse.replace(/```[\s\S]*?```/g, '').trim();
+      if (!chatText) chatText = "I've updated the project files in the editor.";
 
       setMessages(prev => prev.map(m => 
         m.id === aiMessageId ? { ...m, text: chatText, status: 'done' } : m
@@ -468,6 +632,435 @@ export default function App() {
     handleSendMessage();
   };
 
+  if (currentPage === 'auth') {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] text-white flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-md bg-[#111] border border-[#262626] rounded-3xl p-8 shadow-2xl"
+        >
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-blue-600/20">
+              <Box className="w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold tracking-tight">
+              {authStep === 'signup' && 'Create Account'}
+              {authStep === 'otp' && 'Verify Email'}
+              {authStep === 'profile' && 'Complete Profile'}
+              {authStep === 'login' && 'Welcome Back'}
+            </h2>
+            <p className="text-gray-500 text-sm mt-2 text-center">
+              {authStep === 'signup' && 'Join Gear Studio to start building.'}
+              {authStep === 'otp' && `We've sent a 6-digit code to ${authEmail}`}
+              {authStep === 'profile' && 'Tell us a bit more about yourself.'}
+              {authStep === 'login' && 'Sign in to your account.'}
+            </p>
+          </div>
+
+          {authError && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-400 text-sm">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {authError}
+            </div>
+          )}
+
+          {!isSupabaseConfigured && (
+            <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex flex-col gap-2 text-amber-400 text-xs">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span className="font-bold uppercase tracking-wider">Configuration Required</span>
+              </div>
+              <p className="leading-relaxed opacity-80">
+                Supabase environment variables are missing. Please set <strong>VITE_SUPABASE_URL</strong> and <strong>VITE_SUPABASE_ANON_KEY</strong> in your project settings to enable authentication and database features.
+              </p>
+            </div>
+          )}
+
+          {authStep === 'signup' && (
+            <form onSubmit={handleSignUp} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">Email Address</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input 
+                    type="email" 
+                    required
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="name@example.com"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input 
+                    type="password" 
+                    required
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+              <button 
+                type="submit"
+                disabled={isAuthLoading || !isSupabaseConfigured}
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              >
+                {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create Account'}
+              </button>
+              <p className="text-center text-xs text-gray-500 mt-4">
+                Already have an account? <button type="button" onClick={() => setAuthStep('login')} className="text-blue-400 hover:underline">Sign In</button>
+              </p>
+            </form>
+          )}
+
+          {authStep === 'otp' && (
+            <form onSubmit={handleVerifyOtp} className="space-y-6">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1 text-center block">Verification Code</label>
+                <input 
+                  type="text" 
+                  required
+                  value={authOtp}
+                  onChange={(e) => setAuthOtp(e.target.value)}
+                  className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl px-4 py-4 text-2xl text-center font-mono focus:outline-none focus:border-blue-500 transition-colors"
+                  placeholder="Enter Code"
+                />
+              </div>
+              <button 
+                type="submit"
+                disabled={isAuthLoading || !isSupabaseConfigured}
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              >
+                {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Verify Code'}
+              </button>
+              <button 
+                type="button"
+                onClick={() => setAuthStep('signup')}
+                className="w-full text-xs text-gray-500 hover:text-white transition-colors"
+              >
+                Back to Sign Up
+              </button>
+            </form>
+          )}
+
+          {authStep === 'profile' && (
+            <form onSubmit={handleCompleteProfile} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">Username</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input 
+                    type="text" 
+                    required
+                    value={authUsername}
+                    onChange={(e) => setAuthUsername(e.target.value)}
+                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="johndoe"
+                  />
+                </div>
+              </div>
+              <button 
+                type="submit"
+                disabled={isAuthLoading || !isSupabaseConfigured}
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              >
+                {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Complete Setup'}
+              </button>
+            </form>
+          )}
+
+          {authStep === 'login' && (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">Email Address</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input 
+                    type="email" 
+                    required
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="name@example.com"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                  <input 
+                    type="password" 
+                    required
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                    placeholder="••••••••"
+                  />
+                </div>
+              </div>
+              <button 
+                type="submit"
+                disabled={isAuthLoading || !isSupabaseConfigured}
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+              >
+                {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sign In'}
+              </button>
+              <p className="text-center text-xs text-gray-500 mt-4">
+                Don't have an account? <button type="button" onClick={() => setAuthStep('signup')} className="text-blue-400 hover:underline">Sign Up</button>
+              </p>
+            </form>
+          )}
+
+          <div className="mt-8 pt-6 border-t border-[#262626] flex items-center justify-between">
+            <button 
+              onClick={() => setCurrentPage('landing')}
+              className="text-xs text-gray-500 hover:text-white transition-colors flex items-center gap-2"
+            >
+              <ArrowLeft className="w-3 h-3" />
+              Back to Landing
+            </button>
+            <button 
+              onClick={() => setCurrentPage('chat')}
+              className="text-xs text-blue-400 hover:text-blue-300 transition-colors font-medium flex items-center gap-2"
+            >
+              Skip for now
+              <ChevronRight className="w-3 h-3" />
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (currentPage === 'integrations') {
+    const integrations = {
+      builtin: [
+        { 
+          id: 'wavedb', 
+          name: 'waveDB', 
+          desc: 'Built-in database powered by Supabase. Schema: users, projects, files, deployments.', 
+          icon: <Box className="w-5 h-5 text-blue-500" />, 
+          fields: [
+            { label: 'Supabase URL', value: import.meta.env.VITE_SUPABASE_URL || '' },
+            { label: 'Anon Key', value: import.meta.env.VITE_SUPABASE_ANON_KEY || '' }
+          ] 
+        },
+        { 
+          id: 'vercel', 
+          name: 'Vercel', 
+          desc: 'Deploy your projects directly to Vercel.', 
+          icon: <Globe className="w-5 h-5" />, 
+          fields: [
+            { label: 'Vercel Token', value: import.meta.env.VERCEL_TOKEN || '' },
+            { label: 'Team ID', value: import.meta.env.VERCEL_TEAM_ID || '' }
+          ] 
+        },
+        { 
+          id: 'gemini', 
+          name: 'Gemini AI', 
+          desc: 'Power your app with the latest Google AI models.', 
+          icon: <Zap className="w-5 h-5 text-blue-400" />, 
+          fields: [
+            { label: 'Gemini API Key', value: import.meta.env.VITE_GEAR_API || '' }
+          ] 
+        },
+        { id: 'lucide', name: 'Lucide Icons', desc: 'Access 1000+ beautiful icons out of the box.', icon: <PluginIcon className="w-5 h-5 text-purple-400" /> },
+        { id: 'tailwind', name: 'Tailwind CSS', desc: 'Utility-first CSS framework for rapid UI development.', icon: <Layers className="w-5 h-5 text-cyan-400" /> }
+      ],
+      plugins: [
+        { id: 'github', name: 'GitHub', desc: 'Sync your code with GitHub repositories.', icon: <Code className="w-5 h-5" />, fields: [{ label: 'Personal Access Token', value: '' }, { label: 'Repo Name', value: '' }] },
+        { id: 'firebase', name: 'Firebase', desc: 'Add database, auth, and hosting to your app.', icon: <Box className="w-5 h-5 text-orange-400" />, fields: [{ label: 'Config JSON', value: '' }] },
+        { id: 'stripe', name: 'Stripe', desc: 'Accept payments and manage subscriptions.', icon: <Circle className="w-5 h-5 text-indigo-400" />, fields: [{ label: 'Secret Key', value: '' }, { label: 'Webhook Secret', value: '' }] },
+        { id: 'supabase', name: 'Supabase', desc: 'Open source Firebase alternative with Postgres.', icon: <Cpu className="w-5 h-5 text-emerald-400" />, fields: [{ label: 'Project URL', value: '' }, { label: 'Anon Key', value: '' }] }
+      ]
+    };
+
+    const handleConnect = (id: string) => {
+      const item = [...integrations.builtin, ...integrations.plugins].find(i => i.id === id);
+      if (item?.fields) {
+        setConfiguringIntegration(id);
+      } else {
+        toggleIntegration(id);
+      }
+    };
+
+    const toggleIntegration = (id: string) => {
+      if (connectedIntegrations.includes(id)) {
+        setConnectedIntegrations(prev => prev.filter(i => i !== id));
+      } else {
+        setConnectedIntegrations(prev => [...prev, id]);
+      }
+      setConfiguringIntegration(null);
+    };
+
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">
+        {/* Integrations Header */}
+        <header className="h-16 border-b border-[#1A1A1A] flex items-center justify-between px-6 bg-[#0A0A0A]/80 backdrop-blur-md sticky top-0 z-[60]">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setCurrentPage('editor')}
+              className="p-2 hover:bg-[#1A1A1A] rounded-lg transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h1 className="text-lg font-bold tracking-tight">Integrations</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setShowShelf(!showShelf)}
+              className={`p-2 rounded-lg transition-all flex items-center gap-2 ${showShelf ? 'bg-blue-600 text-white' : 'hover:bg-[#1A1A1A] text-gray-400'}`}
+              title="Connected Integrations"
+            >
+              <Library className="w-5 h-5" />
+              <span className="text-xs font-semibold">Shelf</span>
+              {connectedIntegrations.length > 0 && (
+                <span className="bg-white text-blue-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                  {connectedIntegrations.length}
+                </span>
+              )}
+            </button>
+          </div>
+        </header>
+
+        {/* Fixed Sub-navigation Bar */}
+        {!showShelf && (
+          <div className="h-12 border-b border-[#1A1A1A] bg-[#0A0A0A] sticky top-16 z-50 flex items-center px-8 gap-8">
+            <button 
+              onClick={() => setIntegrationsTab('builtin')}
+              className={`text-xs font-bold uppercase tracking-widest transition-all relative h-full flex items-center ${integrationsTab === 'builtin' ? 'text-blue-500' : 'text-gray-500 hover:text-white'}`}
+            >
+              Built-in
+              {integrationsTab === 'builtin' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />}
+            </button>
+            <button 
+              onClick={() => setIntegrationsTab('plugins')}
+              className={`text-xs font-bold uppercase tracking-widest transition-all relative h-full flex items-center ${integrationsTab === 'plugins' ? 'text-purple-500' : 'text-gray-500 hover:text-white'}`}
+            >
+              Plug-in
+              {integrationsTab === 'plugins' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-500" />}
+            </button>
+          </div>
+        )}
+
+        <main className="flex-1 max-w-6xl mx-auto w-full p-8 space-y-12">
+          {showShelf ? (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6"
+            >
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold">Your Connected Shelf</h2>
+                <button onClick={() => setShowShelf(false)} className="text-xs text-blue-400 hover:underline">Back to all</button>
+              </div>
+              {connectedIntegrations.length === 0 ? (
+                <div className="p-12 border border-dashed border-[#262626] rounded-2xl text-center">
+                  <Library className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                  <p className="text-gray-400">Your shelf is empty. Connect some integrations to see them here!</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {[...integrations.builtin, ...integrations.plugins]
+                    .filter(i => connectedIntegrations.includes(i.id))
+                    .map(item => (
+                      <div key={item.id} className="p-6 bg-[#111] border border-[#262626] rounded-2xl flex items-start gap-4">
+                        <div className="p-3 bg-[#1A1A1A] rounded-xl">{item.icon}</div>
+                        <div className="flex-1">
+                          <h3 className="font-bold">{item.name}</h3>
+                          <p className="text-xs text-gray-400 mt-1">{item.desc}</p>
+                          <div className="mt-4 flex items-center gap-2 text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Connected
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </motion.div>
+          ) : (
+            <>
+              {/* Active Tab Content */}
+              <section className="space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${integrationsTab === 'builtin' ? 'bg-blue-500/10' : 'bg-purple-500/10'}`}>
+                    {integrationsTab === 'builtin' ? <BuiltInIcon className="w-5 h-5 text-blue-500" /> : <PluginIcon className="w-5 h-5 text-purple-500" />}
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold">{integrationsTab === 'builtin' ? 'Built-in' : 'Plug-in'}</h2>
+                    <p className="text-xs text-gray-500">
+                      {integrationsTab === 'builtin' ? 'Core features that power Gear Studio projects.' : 'Extend your app with third-party services.'}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {integrations[integrationsTab].map(item => (
+                    <div key={item.id} className={`group p-6 bg-[#111] border rounded-2xl transition-all ${configuringIntegration === item.id ? 'border-blue-500 ring-1 ring-blue-500/50' : 'border-[#262626] hover:border-gray-700'}`}>
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="p-3 bg-[#1A1A1A] rounded-xl group-hover:scale-110 transition-transform">{item.icon}</div>
+                        <button 
+                          onClick={() => handleConnect(item.id)}
+                          className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full transition-all ${connectedIntegrations.includes(item.id) ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white text-black hover:bg-gray-200'}`}
+                        >
+                          {connectedIntegrations.includes(item.id) ? 'Connected' : 'Connect'}
+                        </button>
+                      </div>
+                      <h3 className="font-bold">{item.name}</h3>
+                      <p className="text-xs text-gray-400 mt-1 leading-relaxed">{item.desc}</p>
+                      
+                      {configuringIntegration === item.id && (
+                        <motion.div 
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          className="mt-6 pt-6 border-t border-[#262626] space-y-4"
+                        >
+                          {item.fields?.map(field => (
+                            <div key={field.label} className="space-y-1.5">
+                              <label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">{field.label}</label>
+                              <input 
+                                type="password" 
+                                className="w-full bg-[#0A0A0A] border border-[#333] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500"
+                                placeholder={`Enter your ${field.label}`}
+                                defaultValue={field.value}
+                              />
+                            </div>
+                          ))}
+                          <div className="flex gap-2 pt-2">
+                            <button 
+                              onClick={() => toggleIntegration(item.id)}
+                              className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all"
+                            >
+                              Save & Connect
+                            </button>
+                            <button 
+                              onClick={() => setConfiguringIntegration(null)}
+                              className="px-4 py-2 bg-[#1A1A1A] hover:bg-[#262626] rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </>
+          )}
+        </main>
+      </div>
+    );
+  }
+
   if (currentPage === 'landing') {
     return (
       <>
@@ -521,18 +1114,27 @@ export default function App() {
                 <a href="#" className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Features</a>
                 <a href="#" className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Solutions</a>
                 <a href="#" className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Pricing</a>
-                <button 
-                  onClick={() => {
-                    if (projects.length === 0) {
-                      handleNewProject();
-                    } else {
-                      setCurrentPage('chat');
-                    }
-                  }}
-                  className="bg-indigo-600 text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-indigo-700 transition-all shadow-sm"
-                >
-                  Get Started
-                </button>
+                {session ? (
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-medium text-slate-600">Hi, {session.user.user_metadata?.username || session.user.email}</span>
+                    <button 
+                      onClick={() => setCurrentPage('chat')}
+                      className="bg-indigo-600 text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-indigo-700 transition-all shadow-sm"
+                    >
+                      Go to App
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => {
+                      setCurrentPage('auth');
+                      setAuthStep('signup');
+                    }}
+                    className="bg-indigo-600 text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-indigo-700 transition-all shadow-sm"
+                  >
+                    Get Started
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -552,15 +1154,16 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row justify-center gap-4">
                   <button 
                     onClick={() => {
-                      if (projects.length === 0) {
-                        handleNewProject();
-                      } else {
+                      if (session) {
                         setCurrentPage('chat');
+                      } else {
+                        setCurrentPage('auth');
+                        setAuthStep('signup');
                       }
                     }}
                     className="bg-slate-900 text-white px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all"
                   >
-                    Start Building Now
+                    {session ? 'Open Workspace' : 'Start Building Now'}
                     <ChevronRight className="w-5 h-5" />
                   </button>
                   <button className="bg-white border border-slate-200 text-slate-700 px-8 py-4 rounded-xl font-bold hover:bg-slate-50 transition-all shadow-sm">
@@ -687,14 +1290,6 @@ export default function App() {
               <Code className="w-4 h-4" />
             </button>
             <div className="h-4 w-[1px] bg-[#262626] mx-1" />
-            <button 
-              onClick={handleDeploy}
-              disabled={isDeploying || files.length === 0}
-              className={`p-1.5 rounded transition-all ${isDeploying ? 'bg-blue-600/20 text-blue-400' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
-              title="Deploy to Vercel"
-            >
-              {isDeploying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
-            </button>
           </div>
         </div>
 
@@ -768,13 +1363,25 @@ export default function App() {
                         if (currentProject.deploymentUrl) {
                           window.open(currentProject.deploymentUrl, '_blank');
                         } else {
-                          handleDeploy();
+                          setShowDeployModal(true);
                         }
                       }}
                       className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-blue-500 hover:bg-blue-500/10 transition-all"
                     >
                       <Globe className="w-3.5 h-3.5" />
                       <span>{currentProject.deploymentUrl ? 'View Deployment' : 'Deploy to Vercel'}</span>
+                    </button>
+                    <div className="h-[1px] bg-[#262626] my-1" />
+                    <button 
+                      onClick={async () => {
+                        setIsMenuOpen(false);
+                        await supabase.auth.signOut();
+                        setCurrentPage('landing');
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-red-500 hover:bg-red-500/10 transition-all"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Sign Out</span>
                     </button>
                   </div>
                 </motion.div>
@@ -807,10 +1414,17 @@ export default function App() {
                   activeFileIndex === idx && currentPage === 'editor'
                     ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' 
                     : 'hover:bg-[#1A1A1A] text-gray-500 hover:text-gray-300'
-                }`}
+                } ${codingFile === file.name ? 'ring-1 ring-blue-500/50 animate-pulse' : ''}`}
               >
                 <FileCode className={`w-3.5 h-3.5 ${activeFileIndex === idx && currentPage === 'editor' ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
                 <span className="truncate flex-1">{file.name}</span>
+                {codingFile === file.name && (
+                  <div className="flex gap-0.5">
+                    <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1 h-1 bg-blue-500 rounded-full" />
+                    <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1 h-1 bg-blue-500 rounded-full" />
+                    <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1 h-1 bg-blue-500 rounded-full" />
+                  </div>
+                )}
               </button>
             ))}
           </div>
@@ -913,7 +1527,9 @@ export default function App() {
             <div className="absolute inset-0 bg-blue-600/5 pointer-events-none animate-pulse flex items-center justify-center z-30">
               <div className="bg-[#1A1A1A] border border-blue-600/30 px-4 py-2 rounded-full flex items-center gap-3 shadow-2xl">
                 <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
-                <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">AI Coding...</span>
+                <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
+                  {codingFile ? `Coding ${codingFile}...` : 'AI Thinking...'}
+                </span>
               </div>
             </div>
           )}
@@ -1042,18 +1658,16 @@ export default function App() {
             <div className="flex items-center justify-between px-1">
               <div className="flex items-center gap-1">
                 <button 
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => {
+                    const name = prompt("File name (e.g. style.css):");
+                    if (name) {
+                      setFiles(prev => [...prev, { name, content: '' }]);
+                    }
+                  }}
                   className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" 
-                  title="Attach Image"
+                  title="Add File"
                 >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                </button>
-                <button 
-                  onClick={handleAnalyze}
-                  className={`p-1.5 rounded transition-colors ${images.length > 0 ? 'text-blue-500 hover:bg-blue-500/10' : 'text-gray-500 hover:bg-[#262626] hover:text-white'}`} 
-                  title="Analyze Images"
-                >
-                  <Scan className="w-3.5 h-3.5" />
+                  <FilePlus className="w-3.5 h-3.5" />
                 </button>
                 <button className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" title="Voice Input">
                   <Mic className="w-3.5 h-3.5" />
@@ -1075,11 +1689,67 @@ export default function App() {
                 </button>
               </div>
             </div>
+            
+            <div className="pt-1">
+              <button 
+                onClick={() => setCurrentPage('integrations')}
+                className="w-full py-2 px-4 bg-[#1A1A1A] border border-[#333] hover:border-[#444] rounded-lg text-[10px] uppercase tracking-wider font-semibold text-gray-400 hover:text-white transition-all flex items-center justify-center gap-2"
+              >
+                <Cpu className="w-3 h-3" />
+                Integrations
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
     </div>
+
+    <AnimatePresence>
+      {showDeployModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowDeployModal(false)}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="relative w-full max-w-sm bg-[#111] border border-[#262626] rounded-2xl p-6 shadow-2xl overflow-hidden"
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center mb-4">
+                <Globe className="w-6 h-6 text-blue-500" />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">Deploy Project</h3>
+              <p className="text-sm text-gray-400 mb-6">
+                Ready to take your project live? We'll deploy your code to Vercel and provide you with a public URL.
+              </p>
+              
+              <div className="w-full space-y-3">
+                <button 
+                  onClick={handleDeploy}
+                  disabled={isDeploying || files.length === 0}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                >
+                  {isDeploying ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Deployment'}
+                </button>
+                <button 
+                  onClick={() => setShowDeployModal(false)}
+                  className="w-full py-3 bg-transparent hover:bg-[#1A1A1A] text-gray-400 hover:text-white font-medium rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
     </>
   );
 }
