@@ -37,10 +37,12 @@ import {
   ChevronLeft,
   Maximize2,
   Terminal,
+  Bug,
   Eye,
   Menu,
   Mic,
   RotateCcw,
+  RefreshCw,
   Zap,
   Search,
   Box,
@@ -76,11 +78,16 @@ type Message = {
   isError?: boolean;
 };
 
-type Project = {
+type Space = {
   id: string;
   name: string;
+  description?: string;
   updatedAt: string;
   deploymentUrl?: string;
+  vercelProjectName?: string;
+  customDomain?: string;
+  status?: 'draft' | 'deployed';
+  isPrivate?: boolean;
 };
 
 type FileData = {
@@ -88,10 +95,22 @@ type FileData = {
   content: string;
 };
 
-const generateId = () => Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+const generateId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback to a UUID-like string if randomUUID is not available
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'landing' | 'chat' | 'dashboard' | 'editor' | 'integrations' | 'auth' | 'domains'>('landing');
+  const [currentPage, setCurrentPage] = useState<'landing' | 'chat' | 'dashboard' | 'editor' | 'integrations' | 'auth' | 'domains' | 'view'>('landing');
+  const [viewSpace, setViewSpace] = useState<{ space: Space, files: FileData[] } | null>(null);
+  const [viewCombinedCode, setViewCombinedCode] = useState('');
+  const [isViewLoading, setIsViewLoading] = useState(false);
   const [authStep, setAuthStep] = useState<'signup' | 'otp' | 'login'>('signup');
   const [session, setSession] = useState<any>(null);
   const [authEmail, setAuthEmail] = useState('');
@@ -107,11 +126,17 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [learningMode, setLearningMode] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
-  const [currentProject, setCurrentProject] = useState<Project>({ id: '0', name: 'UNTITLED PROJECT', updatedAt: 'Just now' });
+  const [currentSpace, setCurrentSpace] = useState<Space>({ id: '0', name: 'UNTITLED SPACE', updatedAt: 'Just now' });
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [showCreateSpaceModal, setShowCreateSpaceModal] = useState(false);
+  const [newSpaceName, setNewSpaceName] = useState('');
+  const [newSpaceDescription, setNewSpaceDescription] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [activeTasksCount, setActiveTasksCount] = useState(0);
+  const isGenerating = activeTasksCount > 0;
+  const [codingFiles, setCodingFiles] = useState<Record<string, string>>({}); // messageId -> fileName
   const [showSplash, setShowSplash] = useState(true);
   const [deploymentName, setDeploymentName] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
@@ -120,9 +145,70 @@ export default function App() {
   // Initialize deployment name when modal opens
   useEffect(() => {
     if (showDeployModal) {
-      setDeploymentName(currentProject.name.toLowerCase().replace(/\s+/g, '-') + '-' + Math.random().toString(36).substring(2, 7));
+      if (currentSpace.deploymentUrl?.includes('gearstudio.space/')) {
+        const slug = currentSpace.deploymentUrl.split('/').pop();
+        if (slug) {
+          setDeploymentName(slug);
+          return;
+        }
+      }
+      setDeploymentName(currentSpace.name.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-' + Math.random().toString(36).substring(2, 7));
     }
-  }, [showDeployModal, currentProject.name]);
+  }, [showDeployModal, currentSpace.name, currentSpace.deploymentUrl]);
+
+  // Path-based routing for space viewing
+  useEffect(() => {
+    const path = window.location.pathname.split('/').filter(Boolean);
+    const reservedPaths = ['chat', 'editor', 'dashboard', 'integrations', 'auth', 'domains'];
+    
+    if (path.length === 1 && !reservedPaths.includes(path[0])) {
+      const slug = path[0];
+      handleLoadSpaceBySlug(slug);
+    }
+  }, []);
+
+  const handleLoadSpaceBySlug = async (slug: string) => {
+    setIsViewLoading(true);
+    setCurrentPage('view');
+    try {
+      // Try to find space by vercel_project_name (which we use as slug) or ID
+      const { data: spaceData, error: spaceError } = await supabase
+        .from('spaces')
+        .select('*')
+        .or(`vercel_project_name.eq.${slug},id.eq.${slug}`)
+        .single();
+
+      if (spaceError || !spaceData) throw new Error('Space not found');
+
+      const { data: filesData, error: filesError } = await supabase
+        .from('space_files')
+        .select('*')
+        .eq('space_id', spaceData.id);
+
+      if (filesError) throw filesError;
+
+      const space: Space = {
+        id: spaceData.id,
+        name: spaceData.name,
+        updatedAt: new Date(spaceData.updated_at).toLocaleString(),
+        deploymentUrl: spaceData.deployment_url,
+        vercelProjectName: spaceData.vercel_project_name,
+        customDomain: spaceData.custom_domain,
+        status: spaceData.status,
+        isPrivate: spaceData.is_private
+      };
+
+      const files: FileData[] = filesData.map(f => ({ name: f.file_name, content: f.content }));
+      const combined = generateCombinedCode(files);
+      setViewCombinedCode(combined);
+      setViewSpace({ space, files });
+    } catch (err) {
+      console.error('Error loading space for view:', err);
+      setCurrentPage('landing');
+    } finally {
+      setIsViewLoading(false);
+    }
+  };
   const [isCheckingDomain, setIsCheckingDomain] = useState(false);
   const [isBuyingDomain, setIsBuyingDomain] = useState(false);
   const [domainSearch, setDomainSearch] = useState('');
@@ -130,37 +216,215 @@ export default function App() {
   const [cart, setCart] = useState<any[]>([]);
   const [showCart, setShowCart] = useState(false);
   const [images, setImages] = useState<{ data: string; mimeType: string }[]>([]);
+  const [logs, setLogs] = useState<{ type: 'log' | 'error' | 'warn'; message: string; timestamp: string }[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
 
   const [files, setFiles] = useState<FileData[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
-  const [codingFile, setCodingFile] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  const handleNewProject = () => {
-    const newProject: Project = {
-      id: generateId(),
-      name: 'NEW PROJECT ' + (projects.length + 1),
-      updatedAt: 'Just now'
+  // Load spaces from Supabase
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    const loadSpaces = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('spaces')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('updated_at', { ascending: false });
+
+        if (error) throw error;
+        if (data) {
+          const formattedSpaces: Space[] = data.map(s => ({
+            id: s.id,
+            name: s.name,
+            description: s.description,
+            updatedAt: new Date(s.updated_at).toLocaleString(),
+            deploymentUrl: s.deployment_url,
+            vercelProjectName: s.vercel_project_name,
+            customDomain: s.custom_domain,
+            status: s.status,
+            isPrivate: s.is_private
+          }));
+          setSpaces(formattedSpaces);
+          
+          // If no space is selected, select the first one
+          if (currentSpace.id === '0' && formattedSpaces.length > 0) {
+            setCurrentSpace(formattedSpaces[0]);
+            loadSpaceFiles(formattedSpaces[0].id);
+            loadSpaceMessages(formattedSpaces[0].id);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading spaces:', err);
+      }
     };
-    setProjects([newProject, ...projects]);
-    setCurrentProject(newProject);
-    setMessages([]);
-    setFiles([
-      { name: 'index.html', content: '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>New Project</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-gray-50 text-gray-900 font-sans">\n  <div id="app" class="p-8">\n    <h1 class="text-4xl font-black tracking-tighter mb-4">Hello World</h1>\n    <p class="text-gray-500">Welcome to your new Gear Studio project.</p>\n  </div>\n</body>\n</html>' }
-    ]);
-    setActiveFileIndex(0);
-    setCurrentPage('chat');
-    setShowPreview(false);
+
+    loadSpaces();
+  }, [session]);
+
+  const loadSpaceFiles = async (spaceId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('space_files')
+        .select('*')
+        .eq('space_id', spaceId);
+
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setFiles(data.map(f => ({ name: f.file_name, content: f.content })));
+      }
+    } catch (err) {
+      console.error('Error loading space files:', err);
+    }
   };
 
-  const deleteProject = (id: string, e: React.MouseEvent) => {
+  const loadSpaceMessages = async (spaceId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('space_messages')
+        .select('*')
+        .eq('space_id', spaceId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setMessages(data.map(m => ({
+          id: m.id,
+          role: m.role as 'user' | 'ai',
+          text: m.text,
+          type: m.type as any,
+          status: m.status as any
+        })));
+      }
+    } catch (err) {
+      console.error('Error loading space messages:', err);
+    }
+  };
+
+  const syncSpaceToSupabase = async (space: Space, spaceFiles: FileData[], spaceMessages: Message[]) => {
+    if (!session?.user?.id || space.id === '0') return;
+
+    try {
+      setIsSyncing(true);
+      // 1. Upsert Space
+      const { error: spaceError } = await supabase
+        .from('spaces')
+        .upsert({
+          id: space.id,
+          user_id: session.user.id,
+          name: space.name,
+          description: space.description,
+          deployment_url: space.deploymentUrl,
+          status: space.status || 'draft',
+          is_private: space.isPrivate ?? true,
+          updated_at: new Date().toISOString()
+        });
+
+      if (spaceError) throw spaceError;
+
+      // 2. Sync Files
+      for (const file of spaceFiles) {
+        const { error: fileError } = await supabase
+          .from('space_files')
+          .upsert({
+            space_id: space.id,
+            file_name: file.name,
+            content: file.content,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'space_id,file_name' });
+        
+        if (fileError) throw fileError;
+      }
+
+      // 3. Sync Messages
+      if (spaceMessages.length > 0) {
+        const messagesToSync = spaceMessages.map(m => ({
+          id: m.id,
+          space_id: space.id,
+          role: m.role,
+          text: m.text,
+          type: m.type || 'text',
+          status: m.status || 'done',
+          created_at: new Date().toISOString()
+        }));
+
+        const { error: msgError } = await supabase
+          .from('space_messages')
+          .upsert(messagesToSync, { onConflict: 'id' });
+
+        if (msgError) throw msgError;
+      }
+    } catch (err) {
+      console.error('Error syncing to Supabase:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Debounced sync
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (currentSpace.id !== '0') {
+        syncSpaceToSupabase(currentSpace, files, messages);
+      }
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [currentSpace, files, messages, session]);
+
+  const handleCreateSpace = async () => {
+    if (!newSpaceName.trim()) return;
+
+    const newId = generateId();
+    const newSpace: Space = {
+      id: newId,
+      name: newSpaceName,
+      description: newSpaceDescription,
+      updatedAt: 'Just now',
+      status: 'draft'
+    };
+    
+    const initialFiles = [
+      { name: 'index.html', content: '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>' + newSpaceName + '</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-gray-50 text-gray-900 font-sans">\n  <div id="app" class="p-8">\n    <h1 class="text-4xl font-black tracking-tighter mb-4">' + newSpaceName + '</h1>\n    <p class="text-gray-500">' + (newSpaceDescription || 'Welcome to your new Gear Studio space.') + '</p>\n  </div>\n</body>\n</html>' }
+    ];
+
+    setSpaces([newSpace, ...spaces]);
+    setCurrentSpace(newSpace);
+    setFiles(initialFiles);
+    setMessages([]);
+    setNewSpaceName('');
+    setNewSpaceDescription('');
+    setShowCreateSpaceModal(false);
+    setCurrentPage('chat');
+
+    if (session?.user?.id) {
+      await syncSpaceToSupabase(newSpace, initialFiles, []);
+    }
+  };
+
+  const handleNewSpace = () => {
+    setShowCreateSpaceModal(true);
+  };
+
+  const deleteSpace = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setProjects(projects.filter(p => p.id !== id));
-    if (currentProject.id === id) {
-      setCurrentProject(projects[0] || { id: '0', name: 'NO PROJECT', updatedAt: '' });
+    setSpaces(spaces.filter(s => s.id !== id));
+    
+    if (session?.user?.id) {
+      try {
+        await supabase.from('spaces').delete().eq('id', id);
+      } catch (err) {
+        console.error('Error deleting space from Supabase:', err);
+      }
+    }
+
+    if (currentSpace.id === id) {
+      setCurrentSpace(spaces[0] || { id: '0', name: 'NO SPACE', updatedAt: '' });
     }
   };
 
@@ -259,25 +523,73 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'PREVIEW_LOG') {
+        setLogs(prev => [...prev, event.data.log].slice(-100));
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFiles = e.target.files;
     if (!uploadedFiles) return;
 
     Array.from(uploadedFiles).forEach(file => {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setImages(prev => [...prev, { 
-          data: (reader.result as string).split(',')[1], 
-          mimeType: file.type 
-        }]);
-      };
-      reader.readAsDataURL(file);
+      if (file.type.startsWith('image/')) {
+        reader.onloadend = () => {
+          setImages(prev => [...prev, { 
+            data: (reader.result as string).split(',')[1], 
+            mimeType: file.type 
+          }]);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        reader.onloadend = () => {
+          const content = reader.result as string;
+          setInputValue(prev => prev + `\n\nUploaded file: ${file.name}\n\`\`\`\n${content}\n\`\`\``);
+        };
+        reader.readAsText(file);
+      }
     });
+  };
+
+  const handleDebug = () => {
+    const errorLogs = logs.filter(l => l.type === 'error');
+    if (logs.length === 0) {
+      const aiMessage: Message = {
+        id: generateId(),
+        role: 'ai',
+        text: "🔍 **No logs detected yet.**\n\nPlease run your preview and interact with it to generate logs. If you're seeing a specific issue, you can also describe it to me directly!",
+        status: 'done'
+      };
+      setMessages(prev => [...prev, aiMessage]);
+      return;
+    }
+
+    const debugPrompt = errorLogs.length > 0 
+      ? `🚨 **FAULT DETECTED**\n\nI've analyzed the preview logs and found the following errors:\n\n${errorLogs.map(l => `\`[ERROR] ${l.message}\``).join('\n')}\n\nI am now analyzing the code to fix these faults automatically. Please wait...`
+      : `🔍 **LOG ANALYSIS**\n\nI'm reviewing the current logs to ensure everything is running smoothly:\n\n${logs.slice(-5).map(l => `\`[${l.type.toUpperCase()}] ${l.message}\``).join('\n')}\n\nI'll check for any hidden logic issues or optimizations.`;
+
+    const userMessage: Message = {
+      id: generateId(),
+      role: 'user',
+      text: debugPrompt,
+    };
+    setMessages(prev => [...prev, userMessage]);
+    
+    // Trigger AI with the actual logs for debugging
+    const fullDebugPrompt = `DEBUGGING REQUEST:\n\nLogs:\n${logs.map(l => `[${l.type.toUpperCase()}] ${l.message}`).join('\n')}\n\nFiles:\n${files.map(f => `File: ${f.name}\n${f.content}`).join('\n\n')}\n\nPlease identify and fix any errors or faults found in the logs.`;
+    
+    setInputValue('');
+    handleSendMessage(fullDebugPrompt);
   };
 
   const [aiMode, setAiMode] = useState<'fast' | 'complex'>('complex');
   const [combinedCode, setCombinedCode] = useState('');
-  const [isSyncing, setIsSyncing] = useState(false);
 
   const handleApplyCode = (fileName: string, content: string) => {
     const index = files.findIndex(f => f.name === fileName);
@@ -294,82 +606,127 @@ export default function App() {
     setCurrentPage('editor');
   };
 
+  const generateCombinedCode = (spaceFiles: FileData[]) => {
+    const htmlFile = spaceFiles.find(f => f.name === 'index.html');
+    let html = htmlFile?.content || '<div id="root"></div>';
+    
+    // Extract body content if index.html is a full document
+    let bodyContent = html;
+    let headContent = '';
+    
+    if (html.includes('<head')) {
+      const headMatch = html.match(/<head[^>]*>([\s\S]*)<\/head>/i);
+      if (headMatch) headContent = headMatch[1];
+    }
+    
+    if (html.includes('<body')) {
+      const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+      if (bodyMatch) bodyContent = bodyMatch[1];
+    }
+
+    // Collect all CSS files
+    const cssFiles = spaceFiles.filter(f => f.name.endsWith('.css'));
+    const cssContent = cssFiles.map(f => `/* ${f.name} */\n${f.content}`).join('\n\n');
+
+    // Collect all JS files as modules
+    const jsFiles = spaceFiles.filter(f => f.name.endsWith('.js') || f.name.endsWith('.ts') || f.name.endsWith('.tsx'));
+    const scripts = jsFiles.map(f => `
+      <script type="module" data-filename="${f.name}">
+        ${f.content.replace(/import\s+.*?\s+from\s+['"].*?['"];?/g, '')}
+      </script>
+    `).join('\n');
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <script src="https://cdn.tailwindcss.com"></script>
+          <script src="https://unpkg.com/lucide@latest"></script>
+          <script>
+            (function() {
+              const originalLog = console.log;
+              const originalError = console.error;
+              const originalWarn = console.warn;
+              
+              const sendToParent = (type, args) => {
+                window.parent.postMessage({
+                  type: 'PREVIEW_LOG',
+                  log: {
+                    type,
+                    message: args.map(arg => {
+                      try {
+                        return typeof arg === 'object' ? JSON.stringify(arg) : String(arg);
+                      } catch (e) {
+                        return String(arg);
+                      }
+                    }).join(' '),
+                    timestamp: new Date().toLocaleTimeString()
+                  }
+                }, '*');
+              };
+
+              console.log = (...args) => {
+                originalLog.apply(console, args);
+                sendToParent('log', args);
+              };
+              console.error = (...args) => {
+                originalError.apply(console, args);
+                sendToParent('error', args);
+              };
+              console.warn = (...args) => {
+                originalWarn.apply(console, args);
+                sendToParent('warn', args);
+              };
+
+              window.onerror = (message, source, lineno, colno, error) => {
+                sendToParent('error', [message, \`at \${lineno}:\${colno}\`]);
+              };
+            })();
+          </script>
+          ${headContent}
+          <style>
+            ${cssContent}
+            body { margin: 0; padding: 0; background: #000; color: #fff; min-height: 100vh; }
+            #root { min-height: 100vh; }
+            .markdown-body { color: inherit; }
+          </style>
+        </head>
+        <body>
+          ${bodyContent}
+          ${scripts}
+          <script type="module">
+            // Initialize Lucide icons
+            const initLucide = () => {
+              if (window.lucide && typeof window.lucide.createIcons === 'function') {
+                window.lucide.createIcons();
+              }
+            };
+
+            if (document.readyState === 'complete') {
+              initLucide();
+            } else {
+              window.addEventListener('load', initLucide);
+            }
+
+            // Also watch for DOM changes to re-initialize icons
+            const observer = new MutationObserver((mutations) => {
+              // Throttled re-init
+              if (window.lucideTimeout) clearTimeout(window.lucideTimeout);
+              window.lucideTimeout = setTimeout(initLucide, 100);
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+          </script>
+        </body>
+      </html>
+    `;
+  };
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsSyncing(true);
-      const htmlFile = files.find(f => f.name === 'index.html');
-      let html = htmlFile?.content || '<div id="root"></div>';
-      
-      // Extract body content if index.html is a full document
-      let bodyContent = html;
-      let headContent = '';
-      
-      if (html.includes('<head')) {
-        const headMatch = html.match(/<head[^>]*>([\s\S]*)<\/head>/i);
-        if (headMatch) headContent = headMatch[1];
-      }
-      
-      if (html.includes('<body')) {
-        const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-        if (bodyMatch) bodyContent = bodyMatch[1];
-      }
-
-      // Collect all CSS files
-      const cssFiles = files.filter(f => f.name.endsWith('.css'));
-      const cssContent = cssFiles.map(f => `/* ${f.name} */\n${f.content}`).join('\n\n');
-
-      // Collect all JS files as modules
-      const jsFiles = files.filter(f => f.name.endsWith('.js') || f.name.endsWith('.ts'));
-      const scripts = jsFiles.map(f => `
-        <script type="module" data-filename="${f.name}">
-          ${f.content}
-        </script>
-      `).join('\n');
-
-      const combined = `
-        <!DOCTYPE html>
-        <html lang="en">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <script src="https://cdn.tailwindcss.com"></script>
-            <script src="https://unpkg.com/lucide@latest"></script>
-            ${headContent}
-            <style>
-              ${cssContent}
-              body { margin: 0; padding: 0; background: #000; color: #fff; min-height: 100vh; }
-              #root { min-height: 100vh; }
-              .markdown-body { color: inherit; }
-            </style>
-          </head>
-          <body>
-            ${bodyContent}
-            ${scripts}
-            <script type="module">
-              // Initialize Lucide icons
-              const initLucide = () => {
-                if (window.lucide && typeof window.lucide.createIcons === 'function') {
-                  window.lucide.createIcons();
-                }
-              };
-
-              if (document.readyState === 'complete') {
-                initLucide();
-              } else {
-                window.addEventListener('load', initLucide);
-              }
-
-              // Also watch for DOM changes to re-initialize icons
-              const observer = new MutationObserver((mutations) => {
-                // Throttled re-init
-                if (window.lucideTimeout) clearTimeout(window.lucideTimeout);
-                window.lucideTimeout = setTimeout(initLucide, 100);
-              });
-              observer.observe(document.body, { childList: true, subtree: true });
-            </script>
-          </body>
-        </html>
-      `;
+      const combined = generateCombinedCode(files);
       setCombinedCode(combined);
       setTimeout(() => setIsSyncing(false), 800);
     }, 1000);
@@ -424,7 +781,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           domain: target.domain,
-          vercelProjectId: process.env.VERCEL_PROJECT_ID || 'gear-studio-project'
+          vercelProjectId: currentSpace.vercelProjectName || currentSpace.name.toLowerCase().replace(/\s+/g, '-') || 'gear-studio-space'
         })
       });
       const data = await response.json();
@@ -432,11 +789,27 @@ export default function App() {
         const aiMessage: Message = {
           id: generateId(),
           role: 'ai',
-          text: `🎉 **Domain ${target.domain} purchased and configured!**\n\nYour project will be accessible at https://${target.domain} once DNS propagation is complete (usually 5-10 minutes).`,
+          text: `🎉 **Domain ${target.domain} purchased and configured!**\n\nYour space will be accessible at https://${target.domain} once DNS propagation is complete (usually 5-10 minutes).`,
           status: 'done'
         };
         setMessages(prev => [...prev, aiMessage]);
         setCart(prev => prev.filter(item => item.domain !== target.domain));
+        
+        // Update space deployment URL
+        const deploymentUrl = `https://${target.domain}`;
+        const updatedSpace = { 
+          ...currentSpace, 
+          deploymentUrl,
+          customDomain: target.domain,
+          vercelProjectName: currentSpace.vercelProjectName || currentSpace.name.toLowerCase().replace(/\s+/g, '-')
+        };
+        setCurrentSpace(updatedSpace);
+        setSpaces(prev => prev.map(s => s.id === currentSpace.id ? updatedSpace : s));
+        
+        if (session?.user?.id) {
+          await syncSpaceToSupabase(updatedSpace, files, messages);
+        }
+        
         setCurrentPage('chat');
       } else {
         throw new Error(data.error || 'Purchase failed');
@@ -490,11 +863,23 @@ export default function App() {
       const aiMessage: Message = {
         id: generateId(),
         role: 'ai',
-        text: `🎉 **Successfully purchased ${results.length} domain${results.length > 1 ? 's' : ''}!**\n\n${results.map(d => `- ${d}`).join('\n')}\n\nYour projects will be accessible once DNS propagation is complete (usually 5-10 minutes).`,
+        text: `🎉 **Successfully purchased ${results.length} domain${results.length > 1 ? 's' : ''}!**\n\n${results.map(d => `- ${d}`).join('\n')}\n\nYour spaces will be accessible once DNS propagation is complete (usually 5-10 minutes).`,
         status: 'done'
       };
       setMessages(prev => [...prev, aiMessage]);
       setCart(prev => prev.filter(item => !results.includes(item.domain)));
+
+        // Update space deployment URL with the first successful domain
+        if (results.length > 0) {
+          const deploymentUrl = `https://${results[0]}`;
+          const updatedSpace = { ...currentSpace, deploymentUrl, customDomain: results[0] };
+          setCurrentSpace(updatedSpace);
+          setSpaces(prev => prev.map(s => s.id === currentSpace.id ? updatedSpace : s));
+          
+          if (session?.user?.id) {
+            await syncSpaceToSupabase(updatedSpace, files, messages);
+          }
+        }
     }
 
     if (errors.length > 0) {
@@ -512,13 +897,33 @@ export default function App() {
     setCurrentPage('chat');
   };
 
+  const syncDeploymentToSupabase = async (spaceId: string, url: string, inspectUrl: string | null) => {
+    if (!session?.user?.id || spaceId === '0') return;
+
+    try {
+      const { error } = await supabase
+        .from('deployments')
+        .insert({
+          space_id: spaceId,
+          url: url,
+          inspect_url: inspectUrl,
+          status: 'ready',
+          created_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error syncing deployment to Supabase:', err);
+    }
+  };
+
   const handleDeploy = async () => {
     if (files.length === 0) return;
-    if (currentProject.deploymentUrl) {
+    if (currentSpace.deploymentUrl) {
       const aiMessage: Message = {
         id: generateId(),
         role: 'ai',
-        text: `⚠️ **Deployment already exists for this project.**\n\nYou can view it here: [${currentProject.deploymentUrl}](${currentProject.deploymentUrl})\n\nTo prevent unnecessary costs and multiple links, Gear Studio only allows one deployment per project.`,
+        text: `⚠️ **Deployment already exists for this space.**\n\nYou can view it here: [${currentSpace.deploymentUrl}](${currentSpace.deploymentUrl})\n\nTo prevent unnecessary costs and multiple links, Gear Studio only allows one deployment per space.`,
         status: 'done'
       };
       setMessages(prev => [...prev, aiMessage]);
@@ -532,25 +937,35 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: deploymentName || currentProject.name.toLowerCase().replace(/\s+/g, '-'),
+          name: deploymentName || currentSpace.name.toLowerCase().replace(/\s+/g, '-'),
           files: files
         })
       });
       const data = await response.json();
       if (response.ok) {
-        const deploymentUrl = data.url;
+        const deploymentUrl = `https://gearstudio.space/${deploymentName}`;
         const aiMessage: Message = {
           id: generateId(),
           role: 'ai',
-          text: `🚀 **Project deployed successfully!**\n\nYour project is live at: [${deploymentUrl}](${deploymentUrl})\n\nInspect deployment: [Vercel Dashboard](${data.inspectUrl})`,
+          text: `🚀 **Space deployed successfully!**\n\nYour space is live at: [${deploymentUrl}](${deploymentUrl})\n\nInspect deployment: [Vercel Dashboard](${data.inspectUrl})`,
           status: 'done'
         };
         setMessages(prev => [...prev, aiMessage]);
         
-        // Update current project and projects list with deployment URL
-        const updatedProject = { ...currentProject, deploymentUrl };
-        setCurrentProject(updatedProject);
-        setProjects(prev => prev.map(p => p.id === currentProject.id ? updatedProject : p));
+        // Update current space and spaces list with deployment URL
+        const updatedSpace: Space = { 
+          ...currentSpace, 
+          deploymentUrl,
+          vercelProjectName: deploymentName,
+          status: 'deployed'
+        };
+        setCurrentSpace(updatedSpace);
+        setSpaces(prev => prev.map(s => s.id === currentSpace.id ? updatedSpace : s));
+        
+        if (session?.user?.id) {
+          await syncDeploymentToSupabase(currentSpace.id, deploymentUrl, data.inspectUrl);
+          await syncSpaceToSupabase(updatedSpace, files, messages);
+        }
         
         setCurrentPage('chat');
       } else {
@@ -571,27 +986,54 @@ export default function App() {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() && images.length === 0) return;
+  const logUsageToSupabase = async (model: string, promptTokens?: number, completionTokens?: number) => {
+    if (!session?.user?.id) return;
+
+    try {
+      await supabase
+        .from('usage_logs')
+        .insert({
+          user_id: session.user.id,
+          space_id: currentSpace.id === '0' ? null : currentSpace.id,
+          model: model,
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          created_at: new Date().toISOString()
+        });
+    } catch (err) {
+      console.error('Error logging usage to Supabase:', err);
+    }
+  };
+
+  const handleSendMessage = async (overrideInput?: string) => {
+    const inputToUse = overrideInput || inputValue;
+    if (!inputToUse.trim() && images.length === 0) return;
 
     const userMessage: Message = {
       id: generateId(),
       role: 'user',
-      text: inputValue,
+      text: inputToUse,
     };
 
     setMessages(prev => [...prev, userMessage]);
-    const currentInput = inputValue;
-    setInputValue('');
-    setIsGenerating(true);
+    const currentInput = inputToUse;
+    if (!overrideInput) setInputValue('');
+    setImages([]); // Clear images after sending
+    setActiveTasksCount(prev => prev + 1);
     setShowPreview(false);
     const aiMessageId = generateId();
 
     try {
-      const history = messages.map(m => ({
-        role: m.role === 'user' ? 'user' as const : 'model' as const,
-        parts: [{ text: m.text }]
-      }));
+      const history = messages.reduce((acc: { role: "user" | "model"; parts: { text: string }[] }[], m) => {
+        const role = m.role === 'user' ? 'user' : 'model';
+        // Ensure alternating roles
+        if (acc.length > 0 && acc[acc.length - 1].role === role) {
+          acc[acc.length - 1].parts[0].text += `\n\n${m.text}`;
+        } else {
+          acc.push({ role, parts: [{ text: m.text }] });
+        }
+        return acc;
+      }, []);
       
       const stream = await generateCodeResponseStream(currentInput, history, images, files);
       let fullResponse = "";
@@ -620,67 +1062,80 @@ export default function App() {
         const codeBlockRegex = /```(\w+)?(?::([a-zA-Z0-9._\-/]+))?\n([\s\S]*?)(?:```|$)/g;
         const fileTagRegex = /FILE:\s*([a-zA-Z0-9._-]+)\n([\s\S]*?)(?=FILE:|$|```)/g;
         
-        let currentFiles = [...files];
-        let activeCodingFile = "";
+        let updates: { name: string, content: string }[] = [];
+        let lastFile = "";
 
-        // Parse code blocks
         let blockMatch;
         while ((blockMatch = codeBlockRegex.exec(fullResponse)) !== null) {
-          const fileName = blockMatch[2];
-          const content = blockMatch[3].trim();
-          
-          if (fileName) {
-            activeCodingFile = fileName;
-            const index = currentFiles.findIndex(f => f.name === fileName);
-            if (index > -1) {
-              currentFiles[index] = { ...currentFiles[index], content };
-            } else {
-              currentFiles.push({ name: fileName, content });
-            }
+          if (blockMatch[2]) {
+            updates.push({ name: blockMatch[2], content: blockMatch[3].trim() });
+            lastFile = blockMatch[2];
           }
         }
 
-        // Parse FILE: tags
         let tagMatch;
         while ((tagMatch = fileTagRegex.exec(fullResponse)) !== null) {
-          const fileName = tagMatch[1].trim();
-          const content = tagMatch[2].trim();
-          
-          if (fileName) {
-            activeCodingFile = fileName;
-            const index = currentFiles.findIndex(f => f.name === fileName);
-            if (index > -1) {
-              currentFiles[index] = { ...currentFiles[index], content };
-            } else {
-              currentFiles.push({ name: fileName, content });
-            }
-          }
+          updates.push({ name: tagMatch[1].trim(), content: tagMatch[2].trim() });
+          lastFile = tagMatch[1].trim();
         }
 
-        if (activeCodingFile) {
-          setFiles(currentFiles);
-          setCodingFile(activeCodingFile);
-          const newIndex = currentFiles.findIndex(f => f.name === activeCodingFile);
-          if (newIndex > -1) {
-            setActiveFileIndex(newIndex);
-            setCurrentPage('editor');
+        if (updates.length > 0) {
+          setFiles(prev => {
+            const next = [...prev];
+            updates.forEach(update => {
+              const idx = next.findIndex(f => f.name === update.name);
+              if (idx > -1) {
+                next[idx] = { ...next[idx], content: update.content };
+              } else {
+                next.push(update);
+              }
+            });
+            return next;
+          });
+          
+          if (lastFile) {
+            setCodingFiles(prev => ({ ...prev, [aiMessageId]: lastFile }));
           }
         }
       }
 
-      setCodingFile(null);
+      setCodingFiles(prev => {
+        const next = { ...prev };
+        delete next[aiMessageId];
+        return next;
+      });
 
-      // Final processing for project name
-      if (currentProject.id === '0' && messages.length === 0) {
-        setCurrentProject(prev => ({ ...prev, name: currentInput.toUpperCase().slice(0, 20) }));
+      // Final processing for space name
+      if (currentSpace.id === '0' && messages.length === 0) {
+        const generatedName = currentInput.toUpperCase().slice(0, 20);
+        const slug = generatedName.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-' + Math.random().toString(36).substring(2, 6);
+        const deploymentUrl = `https://gearstudio.space/${slug}`;
+        const newSpace: Space = { 
+          ...currentSpace, 
+          name: generatedName, 
+          id: generateId(), 
+          deploymentUrl,
+          status: 'draft'
+        };
+        setCurrentSpace(newSpace);
+        setSpaces(prev => [newSpace, ...prev]);
+        if (session?.user?.id) {
+          await syncSpaceToSupabase(newSpace, files, messages);
+        }
+      } else if (currentSpace.id !== '0' && session?.user?.id) {
+        await syncSpaceToSupabase(currentSpace, files, messages);
       }
 
       let chatText = fullResponse.replace(/```[\s\S]*?```/g, '').trim();
-      if (!chatText) chatText = "I've updated the project files in the editor.";
+      if (!chatText) chatText = "I've updated the space files in the editor.";
 
       setMessages(prev => prev.map(m => 
         m.id === aiMessageId ? { ...m, text: chatText, status: 'done' } : m
       ));
+
+      if (session?.user?.id) {
+        await logUsageToSupabase('gemini-3-flash-preview');
+      }
 
     } catch (error: any) {
       console.error("Error generating code:", error);
@@ -696,6 +1151,8 @@ export default function App() {
           errorMessage = "⚠️ Permission Denied: The Gemini API key does not have permission to access the requested model or tool. This often happens on free-tier keys when using restricted features like Google Search.";
         } else if (errorData?.error?.message) {
           errorMessage = errorData.error.message;
+        } else if (error?.message?.includes('http status code: 0')) {
+          errorMessage = "⚠️ Connection Error: The request to the Gemini API failed (Status 0). This often happens if your network is unstable, a browser extension is blocking the request, or your API key is invalid. Please check your internet connection and try again.";
         } else if (error?.message) {
           errorMessage = error.message;
         }
@@ -717,7 +1174,7 @@ export default function App() {
         }];
       });
     } finally {
-      setIsGenerating(false);
+      setActiveTasksCount(prev => Math.max(0, prev - 1));
       setImages([]);
     }
   };
@@ -775,7 +1232,7 @@ export default function App() {
                 <span className="font-bold uppercase tracking-wider">Configuration Required</span>
               </div>
               <p className="leading-relaxed opacity-80">
-                Supabase environment variables are missing. Please set <strong>VITE_SUPABASE_URL</strong> and <strong>VITE_SUPABASE_ANON_KEY</strong> in your project settings to enable authentication and database features.
+                Supabase environment variables are missing. Please set <strong>VITE_SUPABASE_URL</strong> and <strong>VITE_SUPABASE_ANON_KEY</strong> in your space settings to enable authentication and database features.
               </p>
             </div>
           )}
@@ -923,7 +1380,7 @@ export default function App() {
         { 
           id: 'wavedb', 
           name: 'waveDB', 
-          desc: 'Built-in database powered by Supabase. Schema: users, projects, files, deployments.', 
+          desc: 'Built-in database powered by Supabase. Schema: users, spaces, space_files, deployments.', 
           icon: <Box className="w-5 h-5 text-blue-500" />, 
           fields: [
             { label: 'Supabase URL', value: import.meta.env.VITE_SUPABASE_URL || '' },
@@ -933,7 +1390,7 @@ export default function App() {
         { 
           id: 'vercel', 
           name: 'Vercel', 
-          desc: 'Deploy your projects directly to Vercel.', 
+          desc: 'Deploy your spaces directly to Vercel.', 
           icon: <Globe className="w-5 h-5" />, 
           fields: [
             { label: 'Vercel Token', value: import.meta.env.VERCEL_TOKEN || '' },
@@ -1075,7 +1532,7 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-bold">{integrationsTab === 'builtin' ? 'Built-in' : 'Plug-in'}</h2>
                     <p className="text-xs text-gray-500">
-                      {integrationsTab === 'builtin' ? 'Core features that power Gear Studio projects.' : 'Extend your app with third-party services.'}
+                      {integrationsTab === 'builtin' ? 'Core features that power Gear Studio spaces.' : 'Extend your app with third-party services.'}
                     </p>
                   </div>
                 </div>
@@ -1280,7 +1737,7 @@ export default function App() {
                     <Layers className="w-6 h-6" />
                   </div>
                   <h3 className="text-xl font-bold mb-3">Clean Architecture</h3>
-                  <p className="text-slate-600 leading-relaxed">We don't just write code; we build structured, maintainable projects using industry best practices.</p>
+                  <p className="text-slate-600 leading-relaxed">We don't just write code; we build structured, maintainable spaces using industry best practices.</p>
                 </div>
               </div>
             </div>
@@ -1294,6 +1751,60 @@ export default function App() {
         </footer>
       </div>
     </>
+    );
+  }
+
+  if (currentPage === 'view') {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col items-center justify-center">
+        {isViewLoading ? (
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="w-12 h-12 text-indigo-500 animate-spin" />
+            <p className="text-sm text-gray-500 uppercase tracking-widest font-black animate-pulse">Loading Space...</p>
+          </div>
+        ) : viewSpace ? (
+          <div className="w-full h-screen flex flex-col">
+            <div className="h-12 border-b border-[#262626] flex items-center justify-between px-6 bg-[#0F0F0F] z-50">
+               <div className="flex items-center gap-3">
+                  <div className="w-6 h-6 bg-indigo-600/20 rounded flex items-center justify-center">
+                    <Zap className="w-3 h-3 text-indigo-500" />
+                  </div>
+                  <h1 className="text-[10px] font-black text-white uppercase tracking-widest">{viewSpace.space.name}</h1>
+               </div>
+               <div className="flex items-center gap-4">
+                 <button 
+                   onClick={() => setCurrentPage('landing')}
+                   className="text-[10px] font-bold text-gray-500 hover:text-white uppercase tracking-widest transition-colors"
+                 >
+                   Built with Gear Studio
+                 </button>
+               </div>
+            </div>
+            <div className="flex-1 bg-white relative">
+               <iframe 
+                 srcDoc={viewCombinedCode}
+                 className="w-full h-full border-none"
+                 title={viewSpace.space.name}
+                 sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"
+               />
+            </div>
+          </div>
+        ) : (
+          <div className="text-center p-8">
+            <div className="w-20 h-20 bg-[#111] border border-[#262626] rounded-3xl flex items-center justify-center mx-auto mb-6">
+              <AlertCircle className="w-10 h-10 text-red-500" />
+            </div>
+            <h2 className="text-2xl font-black tracking-tighter mb-2">Space Not Found</h2>
+            <p className="text-gray-500 text-sm mb-8">The space you're looking for doesn't exist or has been removed.</p>
+            <button 
+              onClick={() => setCurrentPage('landing')} 
+              className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold uppercase rounded-xl transition-all"
+            >
+              Go Back Home
+            </button>
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -1377,7 +1888,7 @@ export default function App() {
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {currentProject.deploymentUrl ? (
+                  {currentSpace.deploymentUrl ? (
                     <div className="p-6 bg-[#0F0F0F] border border-[#262626] rounded-2xl flex flex-col justify-between group hover:border-indigo-500/50 transition-all shadow-xl">
                       <div className="flex items-start justify-between mb-4">
                         <div className="w-10 h-10 bg-green-500/10 rounded-xl flex items-center justify-center">
@@ -1388,12 +1899,12 @@ export default function App() {
                         </div>
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-white mb-1">{currentProject.deploymentUrl.replace('https://', '')}</p>
+                        <p className="text-sm font-bold text-white mb-1">{currentSpace.deploymentUrl.replace('https://', '')}</p>
                         <p className="text-[10px] text-gray-500 uppercase tracking-widest">Vercel Subdomain</p>
                       </div>
                       <div className="mt-6 pt-6 border-t border-[#262626] flex items-center justify-between">
                         <button 
-                          onClick={() => window.open(currentProject.deploymentUrl, '_blank')}
+                          onClick={() => window.open(currentSpace.deploymentUrl, '_blank')}
                           className="text-[10px] font-bold text-indigo-500 hover:text-indigo-400 uppercase tracking-widest flex items-center gap-2"
                         >
                           Visit Site <ExternalLink className="w-3 h-3" />
@@ -1407,7 +1918,7 @@ export default function App() {
                       </div>
                       <h4 className="text-lg font-bold text-white mb-2">No domains connected</h4>
                       <p className="text-sm text-gray-500 mb-8 max-w-sm">
-                        Deploy your project to get a free subdomain or search below to register a custom domain.
+                        Deploy your space to get a free subdomain or search below to register a custom domain.
                       </p>
                       <button 
                         onClick={() => setShowDeployModal(true)}
@@ -1467,7 +1978,7 @@ export default function App() {
                         <div>
                           <h4 className="text-2xl font-black text-white tracking-tight">{domainResult.domain}</h4>
                           <p className={`text-xs font-bold uppercase tracking-widest ${domainResult.available ? 'text-indigo-400' : 'text-red-400'}`}>
-                            {domainResult.available ? 'Available for registration' : 'Already taken'}
+                            {domainResult.available ? 'Available for registration' : (domainResult.status || 'Already taken')}
                           </p>
                         </div>
                       </div>
@@ -1504,15 +2015,34 @@ export default function App() {
             </div>
             <span className="font-black text-xs tracking-tighter uppercase">GEAR STUDIO</span>
           </div>
+          {activeTasksCount > 0 && (
+            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 rounded-full">
+              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-spin" />
+              <span className="text-[9px] font-bold text-blue-500 uppercase tracking-tighter">
+                {activeTasksCount} Active Tasks
+              </span>
+            </div>
+          )}
           <div className="h-4 w-[1px] bg-[#262626]" />
           <div className="flex items-center gap-1">
-            <button className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" title="See Backend Logs">
+            <button 
+              onClick={() => setShowLogs(!showLogs)}
+              className={`p-1.5 rounded transition-colors ${showLogs ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
+              title="See Preview Logs"
+            >
               <Terminal className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={handleDebug}
+              className={`p-1.5 rounded transition-colors ${logs.some(l => l.type === 'error') ? 'bg-red-500/20 text-red-500 animate-pulse' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`} 
+              title="AI Debug Faults"
+            >
+              <Bug className="w-4 h-4" />
             </button>
             <button 
               onClick={() => setShowPreview(!showPreview)}
               className={`p-1.5 rounded transition-colors ${showPreview ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
-              title="Preview Project"
+              title="Preview Space"
             >
               <Eye className="w-4 h-4" />
             </button>
@@ -1531,9 +2061,24 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="px-3 py-1 bg-[#1A1A1A] border border-[#333] rounded-full text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-            {currentProject.name}
+          <div className="px-3 py-1 bg-[#1A1A1A] border border-[#333] rounded-full text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+            {currentSpace.name}
+            <span className={`w-1.5 h-1.5 rounded-full ${currentSpace.status === 'deployed' ? 'bg-green-500' : 'bg-yellow-500'}`} />
+            {isSyncing && (
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              >
+                <RefreshCw className="w-2.5 h-2.5 text-blue-500" />
+              </motion.div>
+            )}
           </div>
+          {activeTasksCount > 0 && (
+            <div className="px-2 py-1 bg-indigo-600/20 border border-indigo-500/30 rounded-full text-[8px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1.5 animate-pulse">
+              <Zap className="w-2.5 h-2.5" />
+              {activeTasksCount} Active {activeTasksCount === 1 ? 'Task' : 'Tasks'}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 relative">
@@ -1563,17 +2108,17 @@ export default function App() {
                       onClick={() => {
                         setIsMenuOpen(false);
                         // Export logic
-                        const blob = new Blob([JSON.stringify({ project: currentProject, files }, null, 2)], { type: 'application/json' });
+                        const blob = new Blob([JSON.stringify({ space: currentSpace, files }, null, 2)], { type: 'application/json' });
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = url;
-                        a.download = `${currentProject.name.toLowerCase().replace(/\s+/g, '-')}-export.json`;
+                        a.download = `${currentSpace.name.toLowerCase().replace(/\s+/g, '-')}-export.json`;
                         a.click();
                       }}
                       className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Export Project</span>
+                      <span>Export Space</span>
                     </button>
                     <button 
                       onClick={() => {
@@ -1582,7 +2127,7 @@ export default function App() {
                         const aiMessage: Message = {
                           id: generateId(),
                           role: 'ai',
-                          text: `📜 **Version History**\n\n- **v1.0.0** (Initial Build): ${currentProject.updatedAt}\n\n*Version control is currently in beta. More features coming soon!*`,
+                          text: `📜 **Version History**\n\n- **v1.0.0** (Initial Build): ${currentSpace.updatedAt}\n\n*Version control is currently in beta. More features coming soon!*`,
                           status: 'done'
                         };
                         setMessages(prev => [...prev, aiMessage]);
@@ -1647,11 +2192,11 @@ export default function App() {
                     activeFileIndex === idx && currentPage === 'editor'
                       ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' 
                       : 'hover:bg-[#1A1A1A] text-gray-500 hover:text-gray-300'
-                  } ${codingFile === file.name ? 'ring-1 ring-blue-500/50 animate-pulse' : ''}`}
+                  } ${Object.values(codingFiles).includes(file.name) ? 'ring-1 ring-blue-500/50 animate-pulse' : ''}`}
                 >
                   <FileCode className={`w-3.5 h-3.5 ${activeFileIndex === idx && currentPage === 'editor' ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
                   <span className="truncate flex-1">{file.name}</span>
-                  {codingFile === file.name && (
+                  {Object.values(codingFiles).includes(file.name) && (
                     <div className="flex gap-0.5">
                       <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1 h-1 bg-blue-500 rounded-full" />
                       <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1 h-1 bg-blue-500 rounded-full" />
@@ -1664,11 +2209,11 @@ export default function App() {
             
             <div className="p-4 border-t border-[#262626]">
               <button 
-                onClick={handleNewProject}
+                onClick={handleNewSpace}
                 className="w-full flex items-center justify-center gap-2 py-2 bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] rounded-lg text-[10px] font-bold text-gray-400 uppercase tracking-widest transition-all"
               >
                 <Plus className="w-3 h-3" />
-                New Project
+                New Space
               </button>
             </div>
           </div>
@@ -1709,11 +2254,11 @@ export default function App() {
               </div>
             </div>
           ) : showPreview ? (
-            <div className="flex-1 flex flex-col overflow-hidden bg-white">
+            <div className="flex-1 flex flex-col overflow-hidden bg-white relative">
               {isSyncing && (
                 <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-10">
                   <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-4" />
-                  <p className="text-sm font-bold text-gray-900 uppercase tracking-widest animate-pulse">Bundling Project...</p>
+                  <p className="text-sm font-bold text-gray-900 uppercase tracking-widest animate-pulse">Bundling Space...</p>
                 </div>
               )}
               <iframe
@@ -1722,6 +2267,44 @@ export default function App() {
                 title="Preview"
                 sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"
               />
+
+              {showLogs && (
+                <div className="absolute bottom-0 left-0 right-0 h-64 bg-[#0F0F0F] border-t border-[#262626] z-40 flex flex-col shadow-2xl">
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-[#262626] bg-[#141414]">
+                    <div className="flex items-center gap-2">
+                      <Terminal className="w-3 h-3 text-blue-500" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Preview Logs</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => setLogs([])}
+                        className="text-[10px] font-bold text-gray-500 hover:text-white uppercase tracking-wider"
+                      >
+                        Clear
+                      </button>
+                      <button onClick={() => setShowLogs(false)} className="text-gray-500 hover:text-white">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 font-mono text-[10px] space-y-1 custom-scrollbar bg-[#0A0A0A]">
+                    {logs.length === 0 ? (
+                      <p className="text-gray-600 italic">No logs yet. Interact with your preview to see logs here.</p>
+                    ) : (
+                      logs.map((log, i) => (
+                        <div key={i} className="flex gap-3 animate-in fade-in slide-in-from-bottom-1 duration-300">
+                          <span className="text-gray-600 shrink-0 select-none">{log.timestamp}</span>
+                          <span className={`
+                            ${log.type === 'error' ? 'text-red-400' : log.type === 'warn' ? 'text-yellow-400' : 'text-gray-300'}
+                          `}>
+                            [{log.type.toUpperCase()}] {log.message}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex-1 flex flex-col overflow-hidden">
@@ -1758,13 +2341,23 @@ export default function App() {
           )}
 
           {isGenerating && (
-            <div className="absolute inset-0 bg-blue-600/5 pointer-events-none animate-pulse flex items-center justify-center z-30">
-              <div className="bg-[#1A1A1A] border border-blue-600/30 px-4 py-2 rounded-full flex items-center gap-3 shadow-2xl">
-                <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
-                <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
-                  {codingFile ? `Coding ${codingFile}...` : 'AI Thinking...'}
-                </span>
-              </div>
+            <div className="absolute inset-0 bg-blue-600/5 pointer-events-none animate-pulse flex flex-col items-center justify-center gap-2 z-30">
+              {Object.entries(codingFiles).map(([id, file]) => (
+                <div key={id} className="bg-[#1A1A1A] border border-blue-600/30 px-4 py-2 rounded-full flex items-center gap-3 shadow-2xl">
+                  <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
+                    Coding {file}...
+                  </span>
+                </div>
+              ))}
+              {activeTasksCount > Object.keys(codingFiles).length && (
+                <div className="bg-[#1A1A1A] border border-blue-600/30 px-4 py-2 rounded-full flex items-center gap-3 shadow-2xl">
+                  <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">
+                    AI Thinking...
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1864,9 +2457,9 @@ export default function App() {
                 type="file" 
                 ref={fileInputRef} 
                 className="hidden" 
-                accept="image/*" 
+                accept="*/*" 
                 multiple 
-                onChange={handleImageUpload} 
+                onChange={handleFileUpload} 
               />
               <textarea
                 value={inputValue}
@@ -1881,7 +2474,7 @@ export default function App() {
                 className="w-full bg-[#1A1A1A] border border-[#333] rounded-xl px-4 py-3 pr-10 text-xs focus:outline-none focus:border-blue-500 transition-all resize-none min-h-[80px] max-h-[200px] custom-scrollbar"
               />
               <button 
-                onClick={handleSendMessage}
+                onClick={() => handleSendMessage()}
                 disabled={isGenerating || !inputValue.trim()}
                 className="absolute right-2 bottom-2 p-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg transition-all shadow-lg shadow-blue-600/20"
               >
@@ -2027,6 +2620,79 @@ export default function App() {
     </AnimatePresence>
 
     <AnimatePresence>
+      {showCreateSpaceModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowCreateSpaceModal(false)}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="relative w-full max-w-md bg-[#111] border border-[#262626] rounded-2xl p-8 shadow-2xl overflow-hidden"
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-blue-600/20 rounded-2xl flex items-center justify-center mb-6">
+                <Box className="w-8 h-8 text-blue-500" />
+              </div>
+              <h3 className="text-2xl font-black text-white mb-2 tracking-tighter">Create New Space</h3>
+              <p className="text-sm text-gray-400 mb-8">
+                Give your new creation a name and a brief description to get started.
+              </p>
+
+              <div className="w-full space-y-4 text-left mb-8">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest text-gray-500 font-black mb-2 ml-1">
+                    Space Name
+                  </label>
+                  <input 
+                    type="text"
+                    value={newSpaceName}
+                    onChange={(e) => setNewSpaceName(e.target.value)}
+                    className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl py-4 px-5 text-sm text-white focus:outline-none focus:border-blue-500 transition-all"
+                    placeholder="e.g. My Awesome App"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-widest text-gray-500 font-black mb-2 ml-1">
+                    Description (Optional)
+                  </label>
+                  <textarea 
+                    value={newSpaceDescription}
+                    onChange={(e) => setNewSpaceDescription(e.target.value)}
+                    className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl py-4 px-5 text-sm text-white focus:outline-none focus:border-blue-500 transition-all resize-none h-24"
+                    placeholder="What are you building?"
+                  />
+                </div>
+              </div>
+              
+              <div className="w-full flex gap-3">
+                <button 
+                  onClick={() => setShowCreateSpaceModal(false)}
+                  className="flex-1 py-4 bg-transparent hover:bg-[#1A1A1A] text-gray-400 hover:text-white font-bold rounded-xl transition-all border border-[#262626]"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleCreateSpace}
+                  disabled={!newSpaceName.trim()}
+                  className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl transition-all shadow-xl shadow-blue-600/20"
+                >
+                  Create Space
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+
+    <AnimatePresence>
       {showDeployModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <motion.div 
@@ -2046,14 +2712,14 @@ export default function App() {
               <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center mb-4">
                 <Globe className="w-6 h-6 text-blue-500" />
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">Deploy Project</h3>
+              <h3 className="text-lg font-bold text-white mb-2">Deploy Space</h3>
               <p className="text-sm text-gray-400 mb-6">
-                Ready to take your project live? We'll deploy your code to Vercel and provide you with a public URL.
+                Ready to take your space live? We'll deploy your code to Vercel and provide you with a public URL.
               </p>
 
               <div className="w-full mb-6 text-left">
                 <label className="block text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2 ml-1">
-                  Project Subdomain
+                  Space Subdomain
                 </label>
                 <div className="relative">
                   <input 
@@ -2061,7 +2727,7 @@ export default function App() {
                     value={deploymentName}
                     onChange={(e) => setDeploymentName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
                     className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl py-3 px-4 text-sm text-white focus:outline-none focus:border-blue-500 transition-all pr-24"
-                    placeholder="project-name"
+                    placeholder="space-name"
                   />
                   <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 font-medium">
                     .vercel.app

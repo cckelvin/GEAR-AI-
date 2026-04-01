@@ -1,7 +1,37 @@
-import { GoogleGenAI, ThinkingLevel } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
-const apiKey = import.meta.env.VITE_GEAR_API || process.env.GEMINI_API_KEY;
-const ai = new GoogleGenAI({ apiKey });
+const apiKeys = [
+  import.meta.env.VITE_GEAR_API,
+  import.meta.env.VITE_GEAR_API_2,
+  import.meta.env.VITE_GEAR_API_3,
+  process.env.GEMINI_API_KEY
+].filter(Boolean) as string[];
+
+let currentKeyIndex = 0;
+
+function getAI() {
+  if (apiKeys.length === 0) {
+    throw new Error("No Gemini API keys configured. Please set GEMINI_API_KEY in your environment.");
+  }
+  
+  // Try to find a valid key, skipping any that might be "undefined" as a string
+  let apiKey = apiKeys[currentKeyIndex];
+  let attempts = 0;
+  while ((!apiKey || apiKey === "undefined") && attempts < apiKeys.length) {
+    currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
+    apiKey = apiKeys[currentKeyIndex];
+    attempts++;
+  }
+
+  if (!apiKey || apiKey === "undefined") {
+    throw new Error("No valid Gemini API keys found.");
+  }
+
+  // Rotate for next time
+  currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
+  
+  return new GoogleGenAI({ apiKey });
+}
 
 const SYSTEM_INSTRUCTION = `You are Gear AI, a world-class engineer and product designer. Your goal is to turn natural language into polished, production-ready web applications.
 
@@ -10,9 +40,9 @@ Configure the output for the Gear Studio Preview. The current environment does n
 Core Directives:
 1. Tech Stack: ONLY use HTML, Tailwind CSS (via CDN), and Lucide Icons (via ESM.sh). DO NOT use React, Vite, or any complex build tools. Your output must be standalone HTML/JS that runs directly in a browser without a build step.
 2. Code-First Approach: When asked to build or modify something, prioritize generating code. Do not provide long explanations unless specifically asked.
-3. Editor-Centric: You code directly in the user's editor. Your primary output should be the code blocks that update the project files.
+3. Editor-Centric: You code directly in the user's editor. Your primary output should be the code blocks that update the space files.
 4. Modularity & Smaller Files:
-   - Split projects into logical files (e.g., index.html, styles.css, main.js, components.js).
+   - Split spaces into logical files (e.g., index.html, styles.css, main.js, components.js).
    - Use <script type="module"> in index.html to import logic from other .js files.
    - Use <link rel="stylesheet" href="styles.css"> for custom CSS.
    - This makes editing and updating much faster as you only need to provide the specific file being updated.
@@ -21,22 +51,24 @@ Core Directives:
      Example: import { createIcons, icons } from 'https://esm.sh/lucide'
    - Tailwind Processing: Use standard Tailwind classes. Assume the preview window has the Tailwind CDN script loaded in the head.
 6. Minimal Chat: Keep your chat responses extremely brief. Acknowledge the request, state what you're doing in one sentence, and then provide the code blocks. Do not repeat the code in plain text.
-7. Explicit File Labeling: Always provide code in markdown blocks with the file path as a label: \`\`\`language:path/to/file.ext\n[code]\n\`\`\`. For example, \`\`\`html:index.html\n[code]\n\`\`\`. This is CRITICAL for the environment to update the files correctly.
+7. Explicit File Labeling: Always provide code in markdown blocks with the file path as a label: \`\`\`language:path/to/file.ext\n[code]\n\`\`\`. For example, \`\`\`html:index.html\n[code]\n\`\`\`. Alternatively, you can use the \`FILE: path/to/file.ext\n[code]\` format. This is CRITICAL for the environment to update the files correctly.
 8. Complete Files: Always provide the full content of the file, not just snippets, unless explicitly asked for a diff. This ensures the user's editor is always in a valid state.
-9. Context Awareness: You are provided with the current project files. Modify existing files or create new ones as needed to fulfill the user's request.
+9. Context Awareness: You are provided with the current space files. Modify existing files or create new ones as needed to fulfill the user's request.
 10. No Mock Data: Build actual API calls, OAuth flows, and database schemas.
 11. Built-in Integrations (waveDB):
    - Gear Studio provides a special built-in service called 'waveDB' for database and storage needs.
    - waveDB is powered by Supabase and uses the following schema:
      - users: { id, email, created_at, plan, daily_generations, last_reset }
-     - projects: { id, user_id, name, is_private, deployment_url, status, created_at, updated_at }
-     - project_files: { id, project_id, file_name, content, created_at }
-     - deployments: { id, project_id, url, provider, status, created_at }
-     - usage_logs: { id, user_id, action, created_at }
+     - spaces: { id, user_id, name, description, is_private, deployment_url, vercel_project_name, custom_domain, status, created_at, updated_at }
+     - space_files: { id, space_id, file_name, content, created_at, updated_at }
+     - deployments: { id, space_id, url, inspect_url, status, created_at }
+     - usage_logs: { id, user_id, space_id, model, prompt_tokens, completion_tokens, created_at }
    - If a user needs a database (e.g., for an e-commerce app) and doesn't have a specific preference like Supabase or Firebase, you MUST prefer using 'waveDB'.
    - ALWAYS ask the user for confirmation before implementing any integration (Plug-in or Built-in).
    - Example: "I see you need a database for your e-commerce app. Would you like me to use the built-in waveDB integration for this?"
 12. NO REACT: Do not generate App.tsx or use React syntax. Use standard DOM manipulation (document.getElementById, etc.) for interactivity.
+13. Debugging & Logs: You have access to the preview window's console logs. If the user provides logs, analyze them to identify errors (e.g., syntax errors, failed network requests, or logic bugs) and provide fixes directly in the code blocks.
+14. File Analysis: When a user uploads a file, analyze its content thoroughly. If it's a code file, use it as a reference or integrate it into the project. If it's a text file, use the information within to guide your design or logic.
 
 Interaction Style:
 - Be concise. State your intent in one sentence, then provide the code.
@@ -56,7 +88,7 @@ export async function generateCodeResponseStream(
   let contextPrompt = prompt;
   if (files && files.length > 0) {
     const filesContext = files.map(f => `File: ${f.name}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
-    contextPrompt = `Current Project Files:\n${filesContext}\n\nUser Request: ${prompt}`;
+    contextPrompt = `Current Space Files:\n${filesContext}\n\nUser Request: ${prompt}`;
   }
 
   const userParts: any[] = [{ text: contextPrompt }];
@@ -72,6 +104,7 @@ export async function generateCodeResponseStream(
   }
   
   contents.push({ role: "user", parts: userParts });
+  const ai = getAI();
 
   const response = await ai.models.generateContentStream({
     model: "gemini-3-flash-preview",
@@ -95,7 +128,7 @@ export async function generateCodeResponse(
   let contextPrompt = prompt;
   if (files && files.length > 0) {
     const filesContext = files.map(f => `File: ${f.name}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
-    contextPrompt = `Current Project Files:\n${filesContext}\n\nUser Request: ${prompt}`;
+    contextPrompt = `Current Space Files:\n${filesContext}\n\nUser Request: ${prompt}`;
   }
 
   const userParts: any[] = [{ text: contextPrompt }];
@@ -111,6 +144,7 @@ export async function generateCodeResponse(
   }
   
   contents.push({ role: "user", parts: userParts });
+  const ai = getAI();
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",

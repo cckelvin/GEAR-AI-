@@ -17,21 +17,54 @@ export type User = {
   last_reset: string;
 };
 
-export type Project = {
+export type Space = {
   id: string;
   user_id: string;
   name: string;
+  description: string | null;
   is_private: boolean;
   deployment_url: string | null;
+  vercel_project_name: string | null;
+  custom_domain: string | null;
   status: 'draft' | 'deployed';
   created_at: string;
   updated_at: string;
 };
 
-export type ProjectFile = {
+export type SpaceFile = {
   id: string;
-  project_id: string;
+  space_id: string;
   file_name: string;
   content: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SpaceMessage = {
+  id: string;
+  space_id: string;
+  role: 'user' | 'ai';
+  text: string;
+  type: string;
+  status: string;
+  created_at: string;
+};
+
+export type Deployment = {
+  id: string;
+  space_id: string;
+  url: string;
+  inspect_url: string | null;
+  status: string;
+  created_at: string;
+};
+
+export type UsageLog = {
+  id: string;
+  user_id: string;
+  space_id: string | null;
+  model: string;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
   created_at: string;
 };

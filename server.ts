@@ -17,7 +17,7 @@ async function startServer() {
 
   const SPACESHIP_API_KEY = process.env.SPACESHIP_API_KEY;
   const SPACESHIP_API_SECRET = process.env.SPACESHIP_API_SECRET;
-  const SPACESHIP_API_URL = process.env.SPACESHIP_API_URL || "https://api.spaceship.com/v1";
+  const SPACESHIP_API_URL = (process.env.SPACESHIP_API_URL || "https://api.spaceship.com/v1").replace(/\/$/, "");
 
   // Check Domain Availability
   app.get("/api/domains/check", async (req, res) => {
@@ -26,33 +26,65 @@ async function startServer() {
       return res.status(400).json({ error: "Domain name is required." });
     }
 
+    // Basic domain validation
+    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/;
+    if (!domainRegex.test(domain)) {
+      return res.status(400).json({ error: "Invalid domain format. Please enter a valid domain (e.g., example.com)." });
+    }
+
     if (!SPACESHIP_API_KEY || !SPACESHIP_API_SECRET) {
       return res.status(500).json({ error: "Spaceship API credentials not configured." });
     }
 
     try {
-      const response = await fetch(`${SPACESHIP_API_URL}/domains/check`, {
+      const response = await fetch(`${SPACESHIP_API_URL}/domains/available`, {
         method: "POST",
         headers: {
           "X-API-Key": SPACESHIP_API_KEY,
           "X-API-Secret": SPACESHIP_API_SECRET,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ items: [domain] })
+        body: JSON.stringify({ domains: [domain] })
       });
 
-      const data = await response.json();
-      if (!response.ok) return res.status(response.status).json(data);
+      let data;
+      const contentType = response.headers.get("content-type");
+      if (contentType && (contentType.includes("application/json") || contentType.includes("application/problem+json"))) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        console.error("Spaceship API Non-JSON Response:", text);
+        return res.status(response.status).json({ 
+          error: `Spaceship API returned non-JSON response (${response.status})`,
+          details: text 
+        });
+      }
 
-      const result = data.items?.[0];
+      if (!response.ok) {
+        console.error("Spaceship API Error Status:", response.status);
+        console.error("Spaceship API Error Body:", JSON.stringify(data, null, 2));
+        return res.status(response.status).json({ 
+          error: data.message || data.error || data.detail || `Spaceship API Error (${response.status})`,
+          details: data 
+        });
+      }
+
+      // The response for /domains/available is usually an array of results
+      const result = data[0] || data.items?.[0];
+      if (!result) {
+        return res.status(404).json({ error: "No domain information returned from Spaceship." });
+      }
+
       res.json({
         domain: result.domain,
         available: result.available,
         price: result.price,
-        currency: result.currency
+        currency: result.currency,
+        status: result.status
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message || "Failed to check domain availability" });
+      console.error("Domain check exception:", error);
+      res.status(500).json({ error: error.message || "An unexpected error occurred while checking domain availability" });
     }
   });
 
@@ -66,8 +98,13 @@ async function startServer() {
       return res.status(400).json({ error: "Domain and Vercel Project ID are required." });
     }
 
+    if (!SPACESHIP_API_KEY || !SPACESHIP_API_SECRET) {
+      return res.status(500).json({ error: "Spaceship API credentials not configured." });
+    }
+
     try {
       // 1. Register Domain via Spaceship
+      // Note: Registration requires contact information. Using placeholders for now.
       const registerResponse = await fetch(`${SPACESHIP_API_URL}/domains/register`, {
         method: "POST",
         headers: {
@@ -78,12 +115,76 @@ async function startServer() {
         body: JSON.stringify({
           domain: domain,
           years: 1,
-          privacy: true
+          privacy: true,
+          contacts: {
+            registrant: {
+              firstName: "Gear",
+              lastName: "Studio",
+              email: "admin@gear.space",
+              phone: "+1.1234567890",
+              address: "123 Gear St",
+              city: "Tech City",
+              state: "CA",
+              zip: "90210",
+              country: "US"
+            },
+            administrative: {
+              firstName: "Gear",
+              lastName: "Studio",
+              email: "admin@gear.space",
+              phone: "+1.1234567890",
+              address: "123 Gear St",
+              city: "Tech City",
+              state: "CA",
+              zip: "90210",
+              country: "US"
+            },
+            technical: {
+              firstName: "Gear",
+              lastName: "Studio",
+              email: "admin@gear.space",
+              phone: "+1.1234567890",
+              address: "123 Gear St",
+              city: "Tech City",
+              state: "CA",
+              zip: "90210",
+              country: "US"
+            },
+            billing: {
+              firstName: "Gear",
+              lastName: "Studio",
+              email: "admin@gear.space",
+              phone: "+1.1234567890",
+              address: "123 Gear St",
+              city: "Tech City",
+              state: "CA",
+              zip: "90210",
+              country: "US"
+            }
+          }
         })
       });
 
-      const registerData = await registerResponse.json();
-      if (!registerResponse.ok) return res.status(registerResponse.status).json({ error: "Registration failed", details: registerData });
+      let registerData;
+      const registerContentType = registerResponse.headers.get("content-type");
+      if (registerContentType && (registerContentType.includes("application/json") || registerContentType.includes("application/problem+json"))) {
+        registerData = await registerResponse.json();
+      } else {
+        const text = await registerResponse.text();
+        console.error("Spaceship Register Non-JSON Response:", text);
+        return res.status(registerResponse.status).json({ 
+          error: `Spaceship Register returned non-JSON response (${registerResponse.status})`,
+          details: text 
+        });
+      }
+
+      if (!registerResponse.ok) {
+        console.error("Spaceship Register Error:", JSON.stringify(registerData, null, 2));
+        return res.status(registerResponse.status).json({ 
+          error: registerData.message || registerData.error || registerData.detail || "Registration failed", 
+          details: registerData 
+        });
+      }
 
       // 2. Configure DNS on Spaceship (Point to Vercel)
       // Vercel IP: 76.76.21.21
