@@ -25,6 +25,8 @@ import {
   ToggleRight,
   ToggleLeft,
   Globe,
+  ShoppingCart,
+  Check,
   ExternalLink,
   Trash2,
   Image as ImageIcon,
@@ -89,7 +91,7 @@ type FileData = {
 const generateId = () => Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'landing' | 'chat' | 'dashboard' | 'editor' | 'integrations' | 'auth'>('landing');
+  const [currentPage, setCurrentPage] = useState<'landing' | 'chat' | 'dashboard' | 'editor' | 'integrations' | 'auth' | 'domains'>('landing');
   const [authStep, setAuthStep] = useState<'signup' | 'otp' | 'login'>('signup');
   const [session, setSession] = useState<any>(null);
   const [authEmail, setAuthEmail] = useState('');
@@ -111,8 +113,22 @@ export default function App() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+  const [deploymentName, setDeploymentName] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
   const [showDeployModal, setShowDeployModal] = useState(false);
+
+  // Initialize deployment name when modal opens
+  useEffect(() => {
+    if (showDeployModal) {
+      setDeploymentName(currentProject.name.toLowerCase().replace(/\s+/g, '-') + '-' + Math.random().toString(36).substring(2, 7));
+    }
+  }, [showDeployModal, currentProject.name]);
+  const [isCheckingDomain, setIsCheckingDomain] = useState(false);
+  const [isBuyingDomain, setIsBuyingDomain] = useState(false);
+  const [domainSearch, setDomainSearch] = useState('');
+  const [domainResult, setDomainResult] = useState<any>(null);
+  const [cart, setCart] = useState<any[]>([]);
+  const [showCart, setShowCart] = useState(false);
   const [images, setImages] = useState<{ data: string; mimeType: string }[]>([]);
 
   const [files, setFiles] = useState<FileData[]>([]);
@@ -360,6 +376,142 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [files]);
 
+  const handleAddToCart = (domain: any) => {
+    if (!cart.some(item => item.domain === domain.domain)) {
+      setCart(prev => [...prev, domain]);
+    }
+  };
+
+  const handleRemoveFromCart = (domainName: string) => {
+    setCart(prev => prev.filter(item => item.domain !== domainName));
+  };
+
+  const handleCheckDomain = async () => {
+    if (!domainSearch.trim()) return;
+    setIsCheckingDomain(true);
+    setDomainResult(null);
+    try {
+      const response = await fetch(`/api/domains/check?domain=${domainSearch}`);
+      const data = await response.json();
+      if (response.ok) {
+        setDomainResult(data);
+      } else {
+        throw new Error(data.error || 'Failed to check domain');
+      }
+    } catch (error: any) {
+      const aiMessage: Message = {
+        id: generateId(),
+        role: 'ai',
+        text: `❌ **Domain check failed**\n\n${error.message}`,
+        isError: true,
+        status: 'done'
+      };
+      setMessages(prev => [...prev, aiMessage]);
+      setCurrentPage('chat');
+    } finally {
+      setIsCheckingDomain(false);
+    }
+  };
+
+  const handleBuyDomain = async (domainToBuy?: any) => {
+    const target = domainToBuy || cart[0];
+    if (!target) return;
+    
+    setIsBuyingDomain(true);
+    try {
+      const response = await fetch('/api/domains/buy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          domain: target.domain,
+          vercelProjectId: process.env.VERCEL_PROJECT_ID || 'gear-studio-project'
+        })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        const aiMessage: Message = {
+          id: generateId(),
+          role: 'ai',
+          text: `🎉 **Domain ${target.domain} purchased and configured!**\n\nYour project will be accessible at https://${target.domain} once DNS propagation is complete (usually 5-10 minutes).`,
+          status: 'done'
+        };
+        setMessages(prev => [...prev, aiMessage]);
+        setCart(prev => prev.filter(item => item.domain !== target.domain));
+        setCurrentPage('chat');
+      } else {
+        throw new Error(data.error || 'Purchase failed');
+      }
+    } catch (error: any) {
+      const aiMessage: Message = {
+        id: generateId(),
+        role: 'ai',
+        text: `❌ **Purchase failed**\n\n${error.message}`,
+        isError: true,
+        status: 'done'
+      };
+      setMessages(prev => [...prev, aiMessage]);
+      setCurrentPage('chat');
+    } finally {
+      setIsBuyingDomain(false);
+    }
+  };
+
+  const handleCheckout = async () => {
+    if (cart.length === 0) return;
+    
+    setIsBuyingDomain(true);
+    setShowCart(false);
+    
+    const results = [];
+    const errors = [];
+
+    for (const item of cart) {
+      try {
+        const response = await fetch('/api/domains/buy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            domain: item.domain,
+            vercelProjectId: process.env.VERCEL_PROJECT_ID || 'gear-studio-project'
+          })
+        });
+        const data = await response.json();
+        if (response.ok) {
+          results.push(item.domain);
+        } else {
+          errors.push({ domain: item.domain, error: data.error || 'Purchase failed' });
+        }
+      } catch (error: any) {
+        errors.push({ domain: item.domain, error: error.message });
+      }
+    }
+
+    if (results.length > 0) {
+      const aiMessage: Message = {
+        id: generateId(),
+        role: 'ai',
+        text: `🎉 **Successfully purchased ${results.length} domain${results.length > 1 ? 's' : ''}!**\n\n${results.map(d => `- ${d}`).join('\n')}\n\nYour projects will be accessible once DNS propagation is complete (usually 5-10 minutes).`,
+        status: 'done'
+      };
+      setMessages(prev => [...prev, aiMessage]);
+      setCart(prev => prev.filter(item => !results.includes(item.domain)));
+    }
+
+    if (errors.length > 0) {
+      const aiMessage: Message = {
+        id: generateId(),
+        role: 'ai',
+        text: `❌ **Failed to purchase ${errors.length} domain${errors.length > 1 ? 's' : ''}:**\n\n${errors.map(e => `- ${e.domain}: ${e.error}`).join('\n')}`,
+        isError: true,
+        status: 'done'
+      };
+      setMessages(prev => [...prev, aiMessage]);
+    }
+
+    setIsBuyingDomain(false);
+    setCurrentPage('chat');
+  };
+
   const handleDeploy = async () => {
     if (files.length === 0) return;
     if (currentProject.deploymentUrl) {
@@ -380,7 +532,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: currentProject.name.toLowerCase().replace(/\s+/g, '-'),
+          name: deploymentName || currentProject.name.toLowerCase().replace(/\s+/g, '-'),
           files: files
         })
       });
@@ -1182,9 +1334,169 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-      <div className="flex flex-col h-screen bg-[#0A0A0A] text-white font-sans overflow-hidden">
-      {/* Top Header */}
-      <header className="h-12 border-b border-[#262626] flex items-center justify-between px-4 bg-[#0F0F0F] z-20">
+
+      {currentPage === 'domains' ? (
+        <div className="flex flex-col h-screen bg-[#0A0A0A] text-white font-sans overflow-hidden">
+          {/* Domain Header */}
+          <div className="h-16 border-b border-[#262626] flex items-center justify-between px-8 bg-[#0F0F0F] z-20">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-indigo-600/20 rounded-lg flex items-center justify-center">
+                <Globe className="w-4 h-4 text-indigo-500" />
+              </div>
+              <h2 className="text-lg font-bold text-white tracking-tight">Domain Management</h2>
+            </div>
+            <div className="flex items-center gap-4">
+              <button 
+                onClick={() => setShowCart(!showCart)}
+                className="relative p-2 hover:bg-[#262626] rounded-lg transition-all group"
+              >
+                <ShoppingCart className="w-5 h-5 text-gray-400 group-hover:text-white" />
+                {cart.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                    {cart.length}
+                  </span>
+                )}
+              </button>
+              <button 
+                onClick={() => setCurrentPage('chat')}
+                className="px-4 py-2 bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] rounded-lg text-[10px] font-bold text-gray-400 hover:text-white uppercase tracking-widest transition-all"
+              >
+                Back to Workspace
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-12 custom-scrollbar">
+            <div className="max-w-5xl mx-auto space-y-16">
+              {/* Connected Domains */}
+              <section>
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em] mb-1">Connected Domains</h3>
+                    <p className="text-sm text-gray-400">Manage your active domains and subdomains</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {currentProject.deploymentUrl ? (
+                    <div className="p-6 bg-[#0F0F0F] border border-[#262626] rounded-2xl flex flex-col justify-between group hover:border-indigo-500/50 transition-all shadow-xl">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="w-10 h-10 bg-green-500/10 rounded-xl flex items-center justify-center">
+                          <Check className="w-5 h-5 text-green-500" />
+                        </div>
+                        <div className="px-2 py-1 bg-green-500/10 rounded text-[8px] font-bold text-green-500 uppercase tracking-widest">
+                          Active
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-white mb-1">{currentProject.deploymentUrl.replace('https://', '')}</p>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Vercel Subdomain</p>
+                      </div>
+                      <div className="mt-6 pt-6 border-t border-[#262626] flex items-center justify-between">
+                        <button 
+                          onClick={() => window.open(currentProject.deploymentUrl, '_blank')}
+                          className="text-[10px] font-bold text-indigo-500 hover:text-indigo-400 uppercase tracking-widest flex items-center gap-2"
+                        >
+                          Visit Site <ExternalLink className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="col-span-full p-12 border border-dashed border-[#262626] rounded-3xl flex flex-col items-center justify-center text-center bg-[#0F0F0F]/50">
+                      <div className="w-16 h-16 bg-[#1A1A1A] rounded-2xl flex items-center justify-center mb-6">
+                        <Globe className="w-8 h-8 text-gray-600" />
+                      </div>
+                      <h4 className="text-lg font-bold text-white mb-2">No domains connected</h4>
+                      <p className="text-sm text-gray-500 mb-8 max-w-sm">
+                        Deploy your project to get a free subdomain or search below to register a custom domain.
+                      </p>
+                      <button 
+                        onClick={() => setShowDeployModal(true)}
+                        className="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold uppercase rounded-xl transition-all shadow-2xl shadow-blue-600/20 flex items-center gap-3"
+                      >
+                        <Zap className="w-4 h-4" />
+                        Get URL
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <div className="h-[1px] bg-gradient-to-r from-transparent via-[#262626] to-transparent" />
+
+              {/* Search Section */}
+              <section>
+                <div className="text-center mb-12">
+                  <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em] mb-2">Register Custom Domain</h3>
+                  <h4 className="text-3xl font-black text-white tracking-tighter">Find your perfect identity</h4>
+                </div>
+                
+                <div className="relative max-w-3xl mx-auto">
+                  <div className="absolute -inset-1 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-3xl blur opacity-20 group-focus-within:opacity-40 transition-all" />
+                  <div className="relative flex items-center">
+                    <input 
+                      type="text"
+                      value={domainSearch}
+                      onChange={(e) => setDomainSearch(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleCheckDomain()}
+                      placeholder="Search for your perfect domain (e.g. mycoolapp.com)"
+                      className="w-full bg-[#0F0F0F] border border-[#262626] rounded-3xl px-8 py-6 text-lg focus:outline-none focus:border-indigo-500/50 transition-all shadow-2xl"
+                    />
+                    <button 
+                      onClick={handleCheckDomain}
+                      disabled={isCheckingDomain || !domainSearch.trim()}
+                      className="absolute right-3 top-3 bottom-3 px-8 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-bold uppercase rounded-2xl transition-all flex items-center gap-3 shadow-xl"
+                    >
+                      {isCheckingDomain ? <Loader2 className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
+                      Search
+                    </button>
+                  </div>
+                </div>
+
+                {/* Results */}
+                {domainResult && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-12 max-w-3xl mx-auto"
+                  >
+                    <div className={`p-8 rounded-3xl border flex items-center justify-between shadow-2xl ${domainResult.available ? 'bg-indigo-600/5 border-indigo-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+                      <div className="flex items-center gap-6">
+                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${domainResult.available ? 'bg-indigo-600/20' : 'bg-red-500/20'}`}>
+                          {domainResult.available ? <Globe className="w-8 h-8 text-indigo-500" /> : <X className="w-8 h-8 text-red-500" />}
+                        </div>
+                        <div>
+                          <h4 className="text-2xl font-black text-white tracking-tight">{domainResult.domain}</h4>
+                          <p className={`text-xs font-bold uppercase tracking-widest ${domainResult.available ? 'text-indigo-400' : 'text-red-400'}`}>
+                            {domainResult.available ? 'Available for registration' : 'Already taken'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {domainResult.available && (
+                        <div className="flex items-center gap-8">
+                          <div className="text-right">
+                            <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Yearly Price</p>
+                            <p className="text-3xl font-black text-white">${domainResult.price} <span className="text-xs font-normal text-gray-500">{domainResult.currency}</span></p>
+                          </div>
+                          <button 
+                            onClick={() => handleAddToCart(domainResult)}
+                            className="px-8 py-4 bg-white text-black hover:bg-indigo-500 hover:text-white font-bold rounded-2xl transition-all shadow-2xl"
+                          >
+                            Add to Cart
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </section>
+            </div>
+          </div>
+        </div>
+        ) : (
+          <div className="flex flex-col h-screen bg-[#0A0A0A] text-white font-sans overflow-hidden">
+            {/* Top Header */}
+            <header className="h-12 border-b border-[#262626] flex items-center justify-between px-4 bg-[#0F0F0F] z-20">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">
@@ -1281,20 +1593,15 @@ export default function App() {
                       <History className="w-3.5 h-3.5" />
                       <span>Version History</span>
                     </button>
-                    <div className="h-[1px] bg-[#262626] my-1" />
                     <button 
                       onClick={() => {
                         setIsMenuOpen(false);
-                        if (currentProject.deploymentUrl) {
-                          window.open(currentProject.deploymentUrl, '_blank');
-                        } else {
-                          setShowDeployModal(true);
-                        }
+                        setCurrentPage('domains');
                       }}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-blue-500 hover:bg-blue-500/10 transition-all"
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
                     >
                       <Globe className="w-3.5 h-3.5" />
-                      <span>{currentProject.deploymentUrl ? 'View Deployment' : 'Deploy to Vercel'}</span>
+                      <span>Domain</span>
                     </button>
                     <div className="h-[1px] bg-[#262626] my-1" />
                     <button 
@@ -1318,52 +1625,54 @@ export default function App() {
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar: File Explorer */}
-        <div className="w-64 border-r border-[#262626] flex flex-col bg-[#0F0F0F]">
-          <div className="p-4 border-b border-[#262626]">
-            <p className="text-[9px] font-bold text-gray-500 leading-tight uppercase tracking-wider">
-              AI Coded Files & Folders
-              <br />
-              <span className="text-blue-500/50 italic lowercase font-normal">click to edit manually</span>
-            </p>
-          </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-            {files.map((file, idx) => (
-              <button
-                key={file.name}
-                onClick={() => {
-                  setActiveFileIndex(idx);
-                  setCurrentPage('editor');
-                  setShowPreview(false);
-                }}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-3 transition-all group ${
-                  activeFileIndex === idx && currentPage === 'editor'
-                    ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' 
-                    : 'hover:bg-[#1A1A1A] text-gray-500 hover:text-gray-300'
-                } ${codingFile === file.name ? 'ring-1 ring-blue-500/50 animate-pulse' : ''}`}
+        {!showPreview && (
+          <div className="w-48 border-r border-[#262626] flex flex-col bg-[#0F0F0F]">
+            <div className="p-4 border-b border-[#262626]">
+              <p className="text-[9px] font-bold text-gray-500 leading-tight uppercase tracking-wider">
+                AI Coded Files & Folders
+                <br />
+                <span className="text-blue-500/50 italic lowercase font-normal">click to edit manually</span>
+              </p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+              {files.map((file, idx) => (
+                <button
+                  key={file.name}
+                  onClick={() => {
+                    setActiveFileIndex(idx);
+                    setCurrentPage('editor');
+                    setShowPreview(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-3 transition-all group ${
+                    activeFileIndex === idx && currentPage === 'editor'
+                      ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' 
+                      : 'hover:bg-[#1A1A1A] text-gray-500 hover:text-gray-300'
+                  } ${codingFile === file.name ? 'ring-1 ring-blue-500/50 animate-pulse' : ''}`}
+                >
+                  <FileCode className={`w-3.5 h-3.5 ${activeFileIndex === idx && currentPage === 'editor' ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
+                  <span className="truncate flex-1">{file.name}</span>
+                  {codingFile === file.name && (
+                    <div className="flex gap-0.5">
+                      <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1 h-1 bg-blue-500 rounded-full" />
+                      <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1 h-1 bg-blue-500 rounded-full" />
+                      <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1 h-1 bg-blue-500 rounded-full" />
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+            
+            <div className="p-4 border-t border-[#262626]">
+              <button 
+                onClick={handleNewProject}
+                className="w-full flex items-center justify-center gap-2 py-2 bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] rounded-lg text-[10px] font-bold text-gray-400 uppercase tracking-widest transition-all"
               >
-                <FileCode className={`w-3.5 h-3.5 ${activeFileIndex === idx && currentPage === 'editor' ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
-                <span className="truncate flex-1">{file.name}</span>
-                {codingFile === file.name && (
-                  <div className="flex gap-0.5">
-                    <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1 h-1 bg-blue-500 rounded-full" />
-                    <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1 h-1 bg-blue-500 rounded-full" />
-                    <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1 h-1 bg-blue-500 rounded-full" />
-                  </div>
-                )}
+                <Plus className="w-3 h-3" />
+                New Project
               </button>
-            ))}
+            </div>
           </div>
-          
-          <div className="p-4 border-t border-[#262626]">
-            <button 
-              onClick={handleNewProject}
-              className="w-full flex items-center justify-center gap-2 py-2 bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] rounded-lg text-[10px] font-bold text-gray-400 uppercase tracking-widest transition-all"
-            >
-              <Plus className="w-3 h-3" />
-              New Project
-            </button>
-          </div>
-        </div>
+        )}
 
         {/* Middle Section: Content Area */}
         <div className="flex-1 flex flex-col bg-[#0A0A0A] relative">
@@ -1627,8 +1936,95 @@ export default function App() {
           </div>
         </div>
       </div>
-
     </div>
+    )}
+
+      <AnimatePresence>
+        {showCart && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-end p-4">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowCart(false)}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="relative w-full max-w-md h-full bg-[#0F0F0F] border-l border-[#262626] shadow-2xl flex flex-col"
+          >
+            <div className="p-6 border-b border-[#262626] flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <ShoppingCart className="w-5 h-5 text-indigo-500" />
+                <h3 className="text-lg font-bold text-white">Your Cart</h3>
+              </div>
+              <button 
+                onClick={() => setShowCart(false)}
+                className="p-2 hover:bg-[#262626] rounded-lg transition-all"
+              >
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+              {cart.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center">
+                  <div className="w-16 h-16 bg-[#1A1A1A] rounded-2xl flex items-center justify-center mb-4">
+                    <ShoppingCart className="w-8 h-8 text-gray-600" />
+                  </div>
+                  <p className="text-sm text-gray-400">Your cart is empty</p>
+                  <button 
+                    onClick={() => setShowCart(false)}
+                    className="mt-4 text-xs font-bold text-indigo-500 hover:text-indigo-400 uppercase tracking-widest"
+                  >
+                    Continue Shopping
+                  </button>
+                </div>
+              ) : (
+                cart.map((item) => (
+                  <div key={item.domain} className="p-4 bg-[#1A1A1A] border border-[#262626] rounded-xl flex items-center justify-between group">
+                    <div>
+                      <p className="text-sm font-bold text-white">{item.domain}</p>
+                      <p className="text-[10px] text-gray-500 uppercase tracking-widest">1 Year Registration</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <p className="text-sm font-bold text-white">${item.price}</p>
+                      <button 
+                        onClick={() => handleRemoveFromCart(item.domain)}
+                        className="p-2 text-gray-600 hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {cart.length > 0 && (
+              <div className="p-6 border-t border-[#262626] bg-[#0A0A0A] space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-400 uppercase tracking-widest">Total</p>
+                  <p className="text-xl font-black text-white">
+                    ${cart.reduce((sum, item) => sum + parseFloat(item.price), 0).toFixed(2)}
+                  </p>
+                </div>
+                <button 
+                  onClick={handleCheckout}
+                  disabled={isBuyingDomain}
+                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-xl"
+                >
+                  {isBuyingDomain ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Checkout & Connect'}
+                </button>
+              </div>
+            )}
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
 
     <AnimatePresence>
       {showDeployModal && (
@@ -1654,6 +2050,27 @@ export default function App() {
               <p className="text-sm text-gray-400 mb-6">
                 Ready to take your project live? We'll deploy your code to Vercel and provide you with a public URL.
               </p>
+
+              <div className="w-full mb-6 text-left">
+                <label className="block text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-2 ml-1">
+                  Project Subdomain
+                </label>
+                <div className="relative">
+                  <input 
+                    type="text"
+                    value={deploymentName}
+                    onChange={(e) => setDeploymentName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                    className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl py-3 px-4 text-sm text-white focus:outline-none focus:border-blue-500 transition-all pr-24"
+                    placeholder="project-name"
+                  />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 font-medium">
+                    .vercel.app
+                  </div>
+                </div>
+                <p className="mt-2 text-[9px] text-gray-500 px-1">
+                  Lowercase, numbers, and hyphens only.
+                </p>
+              </div>
               
               <div className="w-full space-y-3">
                 <button 
