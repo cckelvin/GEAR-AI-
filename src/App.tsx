@@ -1380,7 +1380,7 @@ export default function App() {
         { 
           id: 'wavedb', 
           name: 'waveDB', 
-          desc: 'Built-in database powered by Supabase. Schema: users, spaces, space_files, deployments.', 
+          desc: 'Built-in database powered by Supabase. Schema: users, spaces, space_files, deployments, db_tables, db_columns, db_rows, db_cells.', 
           icon: <Box className="w-5 h-5 text-blue-500" />, 
           fields: [
             { label: 'Supabase URL', value: import.meta.env.VITE_SUPABASE_URL || '' },
