@@ -919,63 +919,68 @@ export default function App() {
 
   const handleDeploy = async () => {
     if (files.length === 0) return;
-    if (currentSpace.deploymentUrl) {
+    
+    const slug = (deploymentName || currentSpace.name).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    
+    if (!slug) {
       const aiMessage: Message = {
         id: generateId(),
         role: 'ai',
-        text: `⚠️ **Deployment already exists for this space.**\n\nYou can view it here: [${currentSpace.deploymentUrl}](${currentSpace.deploymentUrl})\n\nTo prevent unnecessary costs and multiple links, Gear Studio only allows one deployment per space.`,
+        text: `❌ **Invalid URL name.** Please provide a valid name for your space URL.`,
+        isError: true,
+        status: 'done'
+      };
+      setMessages(prev => [...prev, aiMessage]);
+      return;
+    }
+
+    setIsDeploying(true);
+    setShowDeployModal(false);
+    try {
+      // 1. Check if slug is already taken by another space
+      const { data: existingSpace } = await supabase
+        .from('spaces')
+        .select('id')
+        .eq('vercel_project_name', slug)
+        .neq('id', currentSpace.id)
+        .maybeSingle();
+        
+      if (existingSpace) {
+        throw new Error(`The URL gearstudio.space/${slug} is already taken. Please choose a different name.`);
+      }
+
+      const deploymentUrl = `https://gearstudio.space/${slug}`;
+      
+      // 2. Update current space and spaces list with deployment URL
+      const updatedSpace: Space = { 
+        ...currentSpace, 
+        deploymentUrl,
+        vercelProjectName: slug,
+        status: 'deployed'
+      };
+      
+      setCurrentSpace(updatedSpace);
+      setSpaces(prev => prev.map(s => s.id === currentSpace.id ? updatedSpace : s));
+      
+      if (session?.user?.id) {
+        await syncSpaceToSupabase(updatedSpace, files, messages);
+        await syncDeploymentToSupabase(currentSpace.id, deploymentUrl, null);
+      }
+      
+      const aiMessage: Message = {
+        id: generateId(),
+        role: 'ai',
+        text: `🚀 **Space published successfully!**\n\nYour space is live at: [${deploymentUrl}](${deploymentUrl})\n\nIt's now accessible like a folder on our website.`,
         status: 'done'
       };
       setMessages(prev => [...prev, aiMessage]);
       setCurrentPage('chat');
-      return;
-    }
-    setIsDeploying(true);
-    setShowDeployModal(false);
-    try {
-      const response = await fetch('/api/deploy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: deploymentName || currentSpace.name.toLowerCase().replace(/\s+/g, '-'),
-          files: files
-        })
-      });
-      const data = await response.json();
-      if (response.ok) {
-        const deploymentUrl = `https://gearstudio.space/${deploymentName}`;
-        const aiMessage: Message = {
-          id: generateId(),
-          role: 'ai',
-          text: `🚀 **Space deployed successfully!**\n\nYour space is live at: [${deploymentUrl}](${deploymentUrl})\n\nInspect deployment: [Vercel Dashboard](${data.inspectUrl})`,
-          status: 'done'
-        };
-        setMessages(prev => [...prev, aiMessage]);
-        
-        // Update current space and spaces list with deployment URL
-        const updatedSpace: Space = { 
-          ...currentSpace, 
-          deploymentUrl,
-          vercelProjectName: deploymentName,
-          status: 'deployed'
-        };
-        setCurrentSpace(updatedSpace);
-        setSpaces(prev => prev.map(s => s.id === currentSpace.id ? updatedSpace : s));
-        
-        if (session?.user?.id) {
-          await syncDeploymentToSupabase(currentSpace.id, deploymentUrl, data.inspectUrl);
-          await syncSpaceToSupabase(updatedSpace, files, messages);
-        }
-        
-        setCurrentPage('chat');
-      } else {
-        throw new Error(data.error || 'Deployment failed');
-      }
+      
     } catch (error: any) {
       const aiMessage: Message = {
         id: generateId(),
         role: 'ai',
-        text: `❌ **Deployment failed**\n\n${error.message}`,
+        text: `❌ **Publishing failed**\n\n${error.message}`,
         isError: true,
         status: 'done'
       };
