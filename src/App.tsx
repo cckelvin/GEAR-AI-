@@ -949,12 +949,28 @@ export default function App() {
         throw new Error(`The URL gearstudio.space/${slug} is already taken. Please choose a different name.`);
       }
 
-      const deploymentUrl = `https://gearstudio.space/${slug}`;
+      // 2. Deploy to Vercel (for backend/CDN reliability)
+      const response = await fetch('/api/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: slug,
+          files: files
+        })
+      });
+      const data = await response.json();
       
-      // 2. Update current space and spaces list with deployment URL
+      if (!response.ok) {
+        throw new Error(data.error || 'Vercel deployment failed');
+      }
+
+      const vercelUrl = data.url;
+      const folderUrl = `https://gearstudio.space/${slug}`;
+      
+      // 3. Update current space and spaces list
       const updatedSpace: Space = { 
         ...currentSpace, 
-        deploymentUrl,
+        deploymentUrl: folderUrl, // Primary URL is the folder
         vercelProjectName: slug,
         status: 'deployed'
       };
@@ -964,13 +980,13 @@ export default function App() {
       
       if (session?.user?.id) {
         await syncSpaceToSupabase(updatedSpace, files, messages);
-        await syncDeploymentToSupabase(currentSpace.id, deploymentUrl, null);
+        await syncDeploymentToSupabase(currentSpace.id, folderUrl, data.inspectUrl);
       }
       
       const aiMessage: Message = {
         id: generateId(),
         role: 'ai',
-        text: `🚀 **Space published successfully!**\n\nYour space is live at: [${deploymentUrl}](${deploymentUrl})\n\nIt's now accessible like a folder on our website.`,
+        text: `🚀 **Space published successfully!**\n\nYour space is live at: [${folderUrl}](${folderUrl})\n\nTemporary Vercel URL: [${vercelUrl}](${vercelUrl})\n\nIt's now accessible like a folder on our website.`,
         status: 'done'
       };
       setMessages(prev => [...prev, aiMessage]);

@@ -112,7 +112,7 @@ export async function generateCodeResponseStream(
   const ai = getAI();
 
   const response = await ai.models.generateContentStream({
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.1-flash-lite-preview",
     contents,
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
@@ -152,7 +152,7 @@ export async function generateCodeResponse(
   const ai = getAI();
 
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.1-flash-lite-preview",
     contents,
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
