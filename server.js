@@ -101,9 +101,31 @@ app.post('/api/deploy', async (req, res) => {
   }
 });
 
-// Serve static files from the Vite build directory
-const distPath = path.join(__dirname, 'dist');
-app.use(express.static(distPath));
+// Vite middleware for development
+if (process.env.NODE_ENV !== "production") {
+  const { createServer: createViteServer } = await import('vite');
+  const vite = await createViteServer({
+    server: { middlewareMode: true },
+    appType: "spa",
+  });
+  app.use(vite.middlewares);
+} else {
+  // Serve static files from the Vite build directory
+  const distPath = path.join(__dirname, 'dist');
+  app.use(express.static(distPath));
+  
+  // Fallback to index.html for SPA routing
+  app.get('*', (req, res, next) => {
+    // Skip if it's a space slug
+    const pathName = req.path;
+    const slug = pathName.split('/')[1];
+    const reserved = ['api', 'chat', 'editor', 'dashboard', 'integrations', 'auth', 'domains', 'view', 'static', 'assets', 'favicon', 'manifest', 'logo', 'robots.txt', 'ask'];
+    if (!reserved.includes(slug) && !pathName.includes('.') && SUPABASE_URL) {
+      return next();
+    }
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
 
 // Dynamic Space Serving (The "Folder" approach)
 app.get('*', async (req, res, next) => {
