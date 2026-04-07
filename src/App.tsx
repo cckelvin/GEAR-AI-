@@ -514,12 +514,6 @@ export default function App() {
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 3500);
-    
-    // Auto-connect waveDB if environment variables are present
-    if (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) {
-      setConnectedIntegrations(prev => prev.includes('wavedb') ? prev : [...prev, 'wavedb']);
-    }
-    
     return () => clearTimeout(timer);
   }, []);
 
@@ -949,22 +943,23 @@ export default function App() {
         throw new Error(`The URL gearstudio.space/${slug} is already taken. Please choose a different name.`);
       }
 
-      // 2. Deploy to Vercel (for backend/CDN reliability)
+      // 2. Deploy to Render (for backend/CDN reliability)
       const response = await fetch('/api/deploy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: slug,
-          files: files
+          files: files,
+          platform: 'render'
         })
       });
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.error || 'Vercel deployment failed');
+        throw new Error(data.error || 'Render deployment failed');
       }
 
-      const vercelUrl = data.url;
+      const renderUrl = data.url;
       const folderUrl = `https://gearstudio.space/${slug}`;
       
       // 3. Update current space and spaces list
@@ -986,7 +981,7 @@ export default function App() {
       const aiMessage: Message = {
         id: generateId(),
         role: 'ai',
-        text: `🚀 **Space published successfully!**\n\nYour space is live at: [${folderUrl}](${folderUrl})\n\nTemporary Vercel URL: [${vercelUrl}](${vercelUrl})\n\nIt's now accessible like a folder on our website.`,
+        text: `🚀 **Space published successfully!**\n\nYour space is live at: [${folderUrl}](${folderUrl})\n\nTemporary Render URL: [${renderUrl}](${renderUrl})\n\nIt's now accessible like a folder on our website.`,
         status: 'done'
       };
       setMessages(prev => [...prev, aiMessage]);
@@ -1399,23 +1394,13 @@ export default function App() {
     const integrations = {
       builtin: [
         { 
-          id: 'wavedb', 
-          name: 'waveDB', 
-          desc: 'Built-in database powered by Supabase. Schema: users, spaces, space_files, deployments, db_tables, db_columns, db_rows, db_cells.', 
-          icon: <Box className="w-5 h-5 text-blue-500" />, 
+          id: 'render', 
+          name: 'Render', 
+          desc: 'Deploy your spaces directly to Render.', 
+          icon: <Globe className="w-5 h-5 text-emerald-500" />, 
           fields: [
-            { label: 'Supabase URL', value: import.meta.env.VITE_SUPABASE_URL || '' },
-            { label: 'Anon Key', value: import.meta.env.VITE_SUPABASE_ANON_KEY || '' }
-          ] 
-        },
-        { 
-          id: 'vercel', 
-          name: 'Vercel', 
-          desc: 'Deploy your spaces directly to Vercel.', 
-          icon: <Globe className="w-5 h-5" />, 
-          fields: [
-            { label: 'Vercel Token', value: import.meta.env.VERCEL_TOKEN || '' },
-            { label: 'Team ID', value: import.meta.env.VERCEL_TEAM_ID || '' }
+            { label: 'Render API Key', value: '' },
+            { label: 'Service ID', value: '' }
           ] 
         },
         { 
@@ -1431,10 +1416,7 @@ export default function App() {
         { id: 'tailwind', name: 'Tailwind CSS', desc: 'Utility-first CSS framework for rapid UI development.', icon: <Layers className="w-5 h-5 text-cyan-400" /> }
       ],
       plugins: [
-        { id: 'github', name: 'GitHub', desc: 'Sync your code with GitHub repositories.', icon: <Code className="w-5 h-5" />, fields: [{ label: 'Personal Access Token', value: '' }, { label: 'Repo Name', value: '' }] },
-        { id: 'firebase', name: 'Firebase', desc: 'Add database, auth, and hosting to your app.', icon: <Box className="w-5 h-5 text-orange-400" />, fields: [{ label: 'Config JSON', value: '' }] },
-        { id: 'stripe', name: 'Stripe', desc: 'Accept payments and manage subscriptions.', icon: <Circle className="w-5 h-5 text-indigo-400" />, fields: [{ label: 'Secret Key', value: '' }, { label: 'Webhook Secret', value: '' }] },
-        { id: 'supabase', name: 'Supabase', desc: 'Open source Firebase alternative with Postgres.', icon: <Cpu className="w-5 h-5 text-emerald-400" />, fields: [{ label: 'Project URL', value: '' }, { label: 'Anon Key', value: '' }] }
+        { id: 'github', name: 'GitHub', desc: 'Sync your code with GitHub repositories.', icon: <Code className="w-5 h-5" />, fields: [{ label: 'Personal Access Token', value: '' }, { label: 'Repo Name', value: '' }] }
       ]
     };
 
@@ -1673,7 +1655,7 @@ export default function App() {
                   <div className="flex items-center gap-4">
                     <span className="text-sm font-medium text-slate-600">Hi, {session.user.user_metadata?.username || session.user.email}</span>
                     <button 
-                      onClick={() => setCurrentPage('chat')}
+                      onClick={() => setCurrentPage('dashboard')}
                       className="bg-indigo-600 text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-indigo-700 transition-all shadow-sm"
                     >
                       Go to App
@@ -1710,7 +1692,7 @@ export default function App() {
                   <button 
                     onClick={() => {
                       if (session) {
-                        setCurrentPage('chat');
+                        setCurrentPage('dashboard');
                       } else {
                         setCurrentPage('auth');
                         setAuthStep('signup');
@@ -1921,7 +1903,7 @@ export default function App() {
                       </div>
                       <div>
                         <p className="text-sm font-bold text-white mb-1">{currentSpace.deploymentUrl.replace('https://', '')}</p>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Vercel Subdomain</p>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Render Domain</p>
                       </div>
                       <div className="mt-6 pt-6 border-t border-[#262626] flex items-center justify-between">
                         <button 
@@ -2128,6 +2110,26 @@ export default function App() {
                     <button 
                       onClick={() => {
                         setIsMenuOpen(false);
+                        setShowDeployModal(true);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-emerald-400 hover:bg-emerald-500/10 transition-all"
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      <span>Deploy to Render</span>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        setCurrentPage('integrations');
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
+                    >
+                      <Code className="w-3.5 h-3.5" />
+                      <span>Sync to GitHub</span>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setIsMenuOpen(false);
                         // Export logic
                         const blob = new Blob([JSON.stringify({ space: currentSpace, files }, null, 2)], { type: 'application/json' });
                         const url = URL.createObjectURL(blob);
@@ -2139,26 +2141,9 @@ export default function App() {
                       className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Export Space</span>
+                      <span>Download Space</span>
                     </button>
-                    <button 
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        // Versions logic (placeholder)
-                        const aiMessage: Message = {
-                          id: generateId(),
-                          role: 'ai',
-                          text: `📜 **Version History**\n\n- **v1.0.0** (Initial Build): ${currentSpace.updatedAt}\n\n*Version control is currently in beta. More features coming soon!*`,
-                          status: 'done'
-                        };
-                        setMessages(prev => [...prev, aiMessage]);
-                        setCurrentPage('chat');
-                      }}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
-                    >
-                      <History className="w-3.5 h-3.5" />
-                      <span>Version History</span>
-                    </button>
+                    <div className="h-[1px] bg-[#262626] my-1" />
                     <button 
                       onClick={() => {
                         setIsMenuOpen(false);
@@ -2167,9 +2152,8 @@ export default function App() {
                       className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
                     >
                       <Globe className="w-3.5 h-3.5" />
-                      <span>Domain</span>
+                      <span>Domain Settings</span>
                     </button>
-                    <div className="h-[1px] bg-[#262626] my-1" />
                     <button 
                       onClick={async () => {
                         setIsMenuOpen(false);
@@ -2230,11 +2214,11 @@ export default function App() {
             
             <div className="p-4 border-t border-[#262626]">
               <button 
-                onClick={handleNewSpace}
+                onClick={() => setCurrentPage('dashboard')}
                 className="w-full flex items-center justify-center gap-2 py-2 bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] rounded-lg text-[10px] font-bold text-gray-400 uppercase tracking-widest transition-all"
               >
-                <Plus className="w-3 h-3" />
-                New Space
+                <Layout className="w-3 h-3" />
+                Spaces
               </button>
             </div>
           </div>
@@ -2242,7 +2226,71 @@ export default function App() {
 
         {/* Middle Section: Content Area */}
         <div className="flex-1 flex flex-col bg-[#0A0A0A] relative">
-          {currentPage === 'chat' ? (
+          {currentPage === 'dashboard' ? (
+            <div className="flex-1 flex flex-col p-8 overflow-y-auto custom-scrollbar">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h1 className="text-2xl font-black tracking-tighter">My Spaces</h1>
+                  <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mt-1">Manage your projects</p>
+                </div>
+                <button 
+                  onClick={handleNewSpace}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-600/20"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  New Space
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {spaces.map(space => (
+                  <button
+                    key={space.id}
+                    onClick={() => {
+                      setCurrentSpace(space);
+                      loadSpaceFiles(space.id);
+                      loadSpaceMessages(space.id);
+                      setCurrentPage('chat');
+                    }}
+                    className={`p-6 bg-[#0F0F0F] border border-[#262626] rounded-2xl text-left hover:border-blue-600/50 transition-all group relative overflow-hidden ${currentSpace.id === space.id ? 'ring-1 ring-blue-500/50 border-blue-600/30' : ''}`}
+                  >
+                    <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={(e) => deleteSpace(space.id, e)}
+                        className="p-1.5 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-all"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div className="w-10 h-10 bg-blue-600/10 rounded-xl flex items-center justify-center mb-4 border border-blue-600/20 group-hover:scale-110 transition-transform">
+                      <Box className="w-5 h-5 text-blue-500" />
+                    </div>
+                    <h3 className="text-sm font-bold text-white mb-1 truncate pr-8">{space.name}</h3>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-3">{space.status || 'Draft'}</p>
+                    <p className="text-xs text-gray-400 line-clamp-2 mb-4 h-8">{space.description || 'No description provided.'}</p>
+                    <div className="flex items-center justify-between mt-auto pt-4 border-t border-[#262626]">
+                      <span className="text-[9px] text-gray-600 font-bold uppercase tracking-tighter">{space.updatedAt}</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-gray-600 group-hover:text-blue-500 transition-colors" />
+                    </div>
+                  </button>
+                ))}
+                {spaces.length === 0 && (
+                  <div className="col-span-full py-20 flex flex-col items-center justify-center border-2 border-dashed border-[#262626] rounded-3xl">
+                    <div className="w-12 h-12 bg-[#141414] rounded-2xl flex items-center justify-center mb-4">
+                      <Box className="w-6 h-6 text-gray-600" />
+                    </div>
+                    <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">No spaces found</p>
+                    <button 
+                      onClick={handleNewSpace}
+                      className="mt-4 text-blue-500 text-xs font-bold hover:underline"
+                    >
+                      Create your first space
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : currentPage === 'chat' ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
               <div className="w-16 h-16 bg-blue-600/10 rounded-2xl flex items-center justify-center mb-6 border border-blue-600/20">
                 <Zap className="w-8 h-8 text-blue-500" />
@@ -2735,7 +2783,7 @@ export default function App() {
               </div>
               <h3 className="text-lg font-bold text-white mb-2">Deploy Space</h3>
               <p className="text-sm text-gray-400 mb-6">
-                Ready to take your space live? We'll deploy your code to Vercel and provide you with a public URL.
+                Ready to take your space live? We'll deploy your code to Render and provide you with a public URL.
               </p>
 
               <div className="w-full mb-6 text-left">

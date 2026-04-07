@@ -17,6 +17,7 @@ const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 const VERCEL_TOKEN = process.env.VERCEL_TOKEN;
 const VERCEL_TEAM_ID = process.env.VERCEL_TEAM_ID;
+const RENDER_API_KEY = process.env.RENDER_API_KEY;
 const SPACESHIP_API_KEY = process.env.SPACESHIP_API_KEY;
 const SPACESHIP_API_SECRET = process.env.SPACESHIP_API_SECRET;
 const SPACESHIP_API_URL = (process.env.SPACESHIP_API_URL || "https://api.spaceship.com/v1").replace(/\/$/, "");
@@ -78,7 +79,43 @@ app.get('/api/domains/check', async (req, res) => {
 });
 
 app.post('/api/deploy', async (req, res) => {
-  const { name, files } = req.body;
+  const { name, files, platform } = req.body;
+  
+  if (platform === 'render') {
+    if (!RENDER_API_KEY) return res.status(500).json({ error: "RENDER_API_KEY not configured" });
+    
+    try {
+      // Render typically deploys from GitHub. 
+      // For a "direct" deploy, we might just be triggering a deploy of an existing service
+      // or providing instructions. For now, let's assume we're triggering a deploy.
+      const response = await fetch(`https://api.render.com/v1/services`, {
+        headers: {
+          "Authorization": `Bearer ${RENDER_API_KEY}`,
+          "Accept": "application/json"
+        }
+      });
+      const services = await response.json();
+      const service = services.find(s => s.service.name === name);
+      
+      if (service) {
+        const deployRes = await fetch(`https://api.render.com/v1/services/${service.service.id}/deploys`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${RENDER_API_KEY}`,
+            "Content-Type": "application/json"
+          }
+        });
+        const deployData = await deployRes.json();
+        return res.json({ url: service.service.serviceDetails.url, inspectUrl: `https://dashboard.render.com/static/${service.service.id}` });
+      } else {
+        return res.status(404).json({ error: "Render service not found. Please create it first in the Render dashboard." });
+      }
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
+  }
+
+  // Default to Vercel for now if no platform or vercel
   const vercelFiles = files.map(f => ({ file: f.name, data: f.content }));
   
   try {
