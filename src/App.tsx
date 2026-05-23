@@ -36,6 +36,7 @@ import {
   MessageSquare,
   ChevronLeft,
   Maximize2,
+  Minimize2,
   Terminal,
   Bug,
   Eye,
@@ -126,6 +127,7 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [learningMode, setLearningMode] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
   const [currentSpace, setCurrentSpace] = useState<Space>({ id: '0', name: 'UNTITLED SPACE', updatedAt: 'Just now' });
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [showCreateSpaceModal, setShowCreateSpaceModal] = useState(false);
@@ -400,7 +402,8 @@ export default function App() {
     setNewSpaceName('');
     setNewSpaceDescription('');
     setShowCreateSpaceModal(false);
-    setCurrentPage('chat');
+    setCurrentPage('editor');
+    setShowPreview(true);
 
     if (session?.user?.id) {
       await syncSpaceToSupabase(newSpace, initialFiles, []);
@@ -2043,7 +2046,12 @@ export default function App() {
               <Bug className="w-4 h-4" />
             </button>
             <button 
-              onClick={() => setShowPreview(!showPreview)}
+              onClick={() => {
+                setShowPreview(!showPreview);
+                if (currentPage !== 'editor') {
+                  setCurrentPage('editor');
+                }
+              }}
               className={`p-1.5 rounded transition-colors ${showPreview ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
               title="Preview Space"
             >
@@ -2244,17 +2252,18 @@ export default function App() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {spaces.map(space => (
-                  <button
+                  <div
                     key={space.id}
                     onClick={() => {
                       setCurrentSpace(space);
                       loadSpaceFiles(space.id);
                       loadSpaceMessages(space.id);
-                      setCurrentPage('chat');
+                      setCurrentPage('editor');
+                      setShowPreview(true);
                     }}
-                    className={`p-6 bg-[#0F0F0F] border border-[#262626] rounded-2xl text-left hover:border-blue-600/50 transition-all group relative overflow-hidden ${currentSpace.id === space.id ? 'ring-1 ring-blue-500/50 border-blue-600/30' : ''}`}
+                    className={`p-6 bg-[#0F0F0F] border border-[#262626] rounded-2xl text-left hover:border-blue-600/50 transition-all group relative overflow-hidden cursor-pointer ${currentSpace.id === space.id ? 'ring-1 ring-blue-500/50 border-blue-600/30' : ''}`}
                   >
-                    <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                       <button 
                         onClick={(e) => deleteSpace(space.id, e)}
                         className="p-1.5 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-all"
@@ -2272,7 +2281,7 @@ export default function App() {
                       <span className="text-[9px] text-gray-600 font-bold uppercase tracking-tighter">{space.updatedAt}</span>
                       <ChevronRight className="w-3.5 h-3.5 text-gray-600 group-hover:text-blue-500 transition-colors" />
                     </div>
-                  </button>
+                  </div>
                 ))}
                 {spaces.length === 0 && (
                   <div className="col-span-full py-20 flex flex-col items-center justify-center border-2 border-dashed border-[#262626] rounded-3xl">
@@ -2323,19 +2332,60 @@ export default function App() {
               </div>
             </div>
           ) : showPreview ? (
-            <div className="flex-1 flex flex-col overflow-hidden bg-white relative">
-              {isSyncing && (
-                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-10">
-                  <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-4" />
-                  <p className="text-sm font-bold text-gray-900 uppercase tracking-widest animate-pulse">Bundling Space...</p>
+            <div className="flex-1 flex flex-col overflow-hidden bg-[#0A0A0A] relative">
+              {/* Preview Header / Device Bar */}
+              <div className="h-10 border-b border-[#262626] bg-[#0F0F0F] flex items-center justify-between px-4 select-none shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-500/80" />
+                    <span className="w-2 h-2 rounded-full bg-yellow-500/80" />
+                    <span className="w-2 h-2 rounded-full bg-green-500/80" />
+                  </div>
+                  <div className="h-4 w-[1px] bg-[#262626] mx-2" />
+                  <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Live Preview</span>
                 </div>
-              )}
-              <iframe
-                srcDoc={combinedCode}
-                className="w-full h-full border-none"
-                title="Preview"
-                sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"
-              />
+                
+                {/* Simulated URL Bar */}
+                <div className="hidden sm:flex items-center bg-[#141414] border border-[#262626] rounded px-3 py-0.5 w-[28rem] justify-center">
+                  <Globe className="w-3 h-3 text-gray-600 mr-2 shrink-0" />
+                  <span className="text-[9px] font-mono text-gray-500 truncate select-all">{currentSpace.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}.gearstudio.space</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setIsPreviewExpanded(!isPreviewExpanded)}
+                    className="p-1 px-2.5 bg-[#1F1F1F] hover:bg-[#2A2A2A] text-gray-400 hover:text-white border border-[#333] rounded text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer"
+                    title={isPreviewExpanded ? "Collapse View" : "Expand Full Screen"}
+                  >
+                    {isPreviewExpanded ? (
+                      <>
+                        <Minimize2 className="w-3 h-3" />
+                        Collapse
+                      </>
+                    ) : (
+                      <>
+                        <Maximize2 className="w-3 h-3" />
+                        Expand
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 bg-white relative">
+                {isSyncing && (
+                  <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-10">
+                    <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-4" />
+                    <p className="text-sm font-bold text-gray-900 uppercase tracking-widest animate-pulse">Bundling Space...</p>
+                  </div>
+                )}
+                <iframe
+                  srcDoc={combinedCode}
+                  className="w-full h-full border-none"
+                  title="Preview"
+                  sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"
+                />
+              </div>
 
               {showLogs && (
                 <div className="absolute bottom-0 left-0 right-0 h-64 bg-[#0F0F0F] border-t border-[#262626] z-40 flex flex-col shadow-2xl">
@@ -2432,7 +2482,8 @@ export default function App() {
         </div>
 
         {/* Right Sidebar: Chat */}
-        <div className="w-80 border-l border-[#262626] flex flex-col bg-[#0F0F0F]">
+        {(!showPreview || !isPreviewExpanded) && (
+          <div className="w-80 border-l border-[#262626] flex flex-col bg-[#0F0F0F]">
           <div className="p-4 border-b border-[#262626] flex items-center justify-between">
             <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">AI Assistant</span>
             <div className="flex items-center gap-1">
@@ -2597,6 +2648,7 @@ export default function App() {
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
     )}
