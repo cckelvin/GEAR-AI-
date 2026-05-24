@@ -41,6 +41,7 @@ import {
   Bug,
   Eye,
   Menu,
+  Home,
   Mic,
   RotateCcw,
   RefreshCw,
@@ -60,41 +61,25 @@ import {
   Phone,
   Lock,
   Mail,
-  AlertCircle
+  AlertCircle,
+  Sparkles,
+  Info,
+  Heart
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 import { generateCodeResponse, generateCodeResponseStream } from './services/gemini';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
-
-type Message = {
-  id: string;
-  role: 'user' | 'ai';
-  text: string;
-  type?: 'text' | 'step' | 'file';
-  status?: 'loading' | 'generating' | 'done';
-  code?: string;
-  fileName?: string;
-  groundingSources?: { title: string, uri: string }[];
-  isError?: boolean;
-};
-
-type Space = {
-  id: string;
-  name: string;
-  description?: string;
-  updatedAt: string;
-  deploymentUrl?: string;
-  vercelProjectName?: string;
-  customDomain?: string;
-  status?: 'draft' | 'deployed';
-  isPrivate?: boolean;
-};
-
-type FileData = {
-  name: string;
-  content: string;
-};
+import { Message, Space, FileData } from './types';
+import LandingPage from './components/LandingPage';
+import AuthPage from './components/AuthPage';
+import IntegrationsPage from './components/IntegrationsPage';
+import Dashboard from './components/Dashboard';
+import ProjectsPage from './components/ProjectsPage';
+import FeaturesPage from './components/FeaturesPage';
+import SolutionsPage from './components/SolutionsPage';
+import PricingPage from './components/PricingPage';
+import AboutUsPage from './components/AboutUsPage';
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -108,7 +93,7 @@ const generateId = () => {
 };
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'landing' | 'chat' | 'dashboard' | 'editor' | 'integrations' | 'auth' | 'domains' | 'view'>('landing');
+  const [currentPage, setCurrentPage] = useState<'landing' | 'chat' | 'dashboard' | 'editor' | 'integrations' | 'auth' | 'domains' | 'view' | 'projects' | 'features' | 'solutions' | 'pricing' | 'about'>('landing');
   const [viewSpace, setViewSpace] = useState<{ space: Space, files: FileData[] } | null>(null);
   const [viewCombinedCode, setViewCombinedCode] = useState('');
   const [isViewLoading, setIsViewLoading] = useState(false);
@@ -125,6 +110,7 @@ export default function App() {
   const [configuringIntegration, setConfiguringIntegration] = useState<string | null>(null);
   const [integrationFields, setIntegrationFields] = useState<Record<string, string>>({});
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isLeftMenuOpen, setIsLeftMenuOpen] = useState(false);
   const [learningMode, setLearningMode] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
@@ -139,6 +125,32 @@ export default function App() {
   const [activeTasksCount, setActiveTasksCount] = useState(0);
   const isGenerating = activeTasksCount > 0;
   const [codingFiles, setCodingFiles] = useState<Record<string, string>>({}); // messageId -> fileName
+  const [aiSettings, setAiSettings] = useState({
+    assistantName: localStorage.getItem('gear_ai_name') || 'Gear AI',
+    userName: localStorage.getItem('gear_ai_user_name') || 'developer',
+    tone: localStorage.getItem('gear_ai_tone') || 'Precise & Technical',
+    length: localStorage.getItem('gear_ai_length') || 'Concise & Direct',
+    emojiLevel: localStorage.getItem('gear_ai_emoji') || 'Standard',
+    customRules: localStorage.getItem('gear_ai_rules') || ''
+  });
+  const [showAiSettings, setShowAiSettings] = useState(false);
+
+  // Auto-sync session username to gear_ai_user_name
+  useEffect(() => {
+    if (session?.user) {
+      const email = session.user.email || '';
+      const emailPrefix = email.split('@')[0];
+      const username = session.user.user_metadata?.username || emailPrefix || 'developer';
+      setAiSettings(prev => {
+        if (!localStorage.getItem('gear_ai_user_name') || prev.userName === 'developer') {
+          localStorage.setItem('gear_ai_user_name', username);
+          return { ...prev, userName: username };
+        }
+        return prev;
+      });
+    }
+  }, [session]);
+
   const [showSplash, setShowSplash] = useState(true);
   const [deploymentName, setDeploymentName] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
@@ -538,10 +550,54 @@ export default function App() {
       const reader = new FileReader();
       if (file.type.startsWith('image/')) {
         reader.onloadend = () => {
-          setImages(prev => [...prev, { 
-            data: (reader.result as string).split(',')[1], 
-            mimeType: file.type 
-          }]);
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            ctx.drawImage(img, 0, 0, 512, 512);
+            const imgData = ctx.getImageData(0, 0, 512, 512);
+            const data = imgData.data;
+
+            const quantizeColor = (r: number, g: number, b: number, a: number): string => {
+              if (a < 32) return '#transparent';
+              const qr = Math.min(255, Math.max(0, Math.round(r / 32) * 32));
+              const qg = Math.min(255, Math.max(0, Math.round(g / 32) * 32));
+              const qb = Math.min(255, Math.max(0, Math.round(b / 32) * 32));
+
+              const toHex = (val: number) => {
+                const hex = val.toString(16);
+                return hex.length === 1 ? '0' + hex : hex;
+              };
+              return '#' + toHex(qr) + toHex(qg) + toHex(qb);
+            };
+
+            let runs: string[] = [];
+            let startPixel = 1;
+            let currentHex = quantizeColor(data[0], data[1], data[2], data[3]);
+
+            const totalPixels = 512 * 512;
+            for (let i = 1; i < totalPixels; i++) {
+              const idx = i * 4;
+              const hex = quantizeColor(data[idx], data[idx+1], data[idx+2], data[idx+3]);
+              if (hex !== currentHex) {
+                runs.push(`${startPixel}-${i}|${currentHex}`);
+                startPixel = i + 1;
+                currentHex = hex;
+              }
+            }
+            runs.push(`${startPixel}-${totalPixels}|${currentHex}`);
+            const rleOutput = `[${runs.join(',')}]`;
+
+            setInputValue(prev => {
+              const prefix = prev ? prev + '\n\n' : '';
+              return prefix + `[IMAGE_FILE: ${file.name} (RLE encoded 512x512 pixels to save token cost)]\nFormat is [start_pixel-end_pixel|#hex_color]:\n${rleOutput}\n`;
+            });
+          };
+          img.src = reader.result as string;
         };
         reader.readAsDataURL(file);
       } else {
@@ -552,6 +608,8 @@ export default function App() {
         reader.readAsText(file);
       }
     });
+
+    e.target.value = '';
   };
 
   const handleDebug = () => {
@@ -1054,7 +1112,7 @@ export default function App() {
         return acc;
       }, []);
       
-      const stream = await generateCodeResponseStream(currentInput, history, images, files);
+      const stream = await generateCodeResponseStream(currentInput, history, images, files, aiSettings);
       let fullResponse = "";
       
       // Add initial AI message
@@ -1215,548 +1273,50 @@ export default function App() {
 
   if (currentPage === 'auth') {
     return (
-      <div className="min-h-screen bg-[#0A0A0A] text-white flex items-center justify-center p-4">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-md bg-[#111] border border-[#262626] rounded-3xl p-8 shadow-2xl"
-        >
-          <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-lg shadow-blue-600/20">
-              <Box className="w-8 h-8 text-white" />
-            </div>
-            <h2 className="text-2xl font-bold tracking-tight">
-              {authStep === 'signup' && 'Create Account'}
-              {authStep === 'otp' && 'Verify Email'}
-              {authStep === 'login' && 'Welcome Back'}
-            </h2>
-            <p className="text-gray-500 text-sm mt-2 text-center">
-              {authStep === 'signup' && 'Join Gear Studio to start building.'}
-              {authStep === 'otp' && `We've sent a 6-digit code to ${authEmail}`}
-              {authStep === 'login' && 'Sign in to your account.'}
-            </p>
-          </div>
-
-          {authError && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-400 text-sm">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              {authError}
-            </div>
-          )}
-
-          {!isSupabaseConfigured && (
-            <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl flex flex-col gap-2 text-amber-400 text-xs">
-              <div className="flex items-center gap-3">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span className="font-bold uppercase tracking-wider">Configuration Required</span>
-              </div>
-              <p className="leading-relaxed opacity-80">
-                Supabase environment variables are missing. Please set <strong>VITE_SUPABASE_URL</strong> and <strong>VITE_SUPABASE_ANON_KEY</strong> in your space settings to enable authentication and database features.
-              </p>
-            </div>
-          )}
-
-          {authStep === 'signup' && (
-            <form onSubmit={handleSignUp} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">Email Address</label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                  <input 
-                    type="email" 
-                    required
-                    value={authEmail}
-                    onChange={(e) => setAuthEmail(e.target.value)}
-                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                    placeholder="name@example.com"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">Password</label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                  <input 
-                    type="password" 
-                    required
-                    value={authPassword}
-                    onChange={(e) => setAuthPassword(e.target.value)}
-                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                    placeholder="••••••••"
-                  />
-                </div>
-              </div>
-              <button 
-                type="submit"
-                disabled={isAuthLoading || !isSupabaseConfigured}
-                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
-              >
-                {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create Account'}
-              </button>
-              <p className="text-center text-xs text-gray-500 mt-4">
-                Already have an account? <button type="button" onClick={() => setAuthStep('login')} className="text-blue-400 hover:underline">Sign In</button>
-              </p>
-            </form>
-          )}
-
-          {authStep === 'otp' && (
-            <form onSubmit={handleVerifyOtp} className="space-y-6">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1 text-center block">Verification Code</label>
-                <input 
-                  type="text" 
-                  required
-                  value={authOtp}
-                  onChange={(e) => setAuthOtp(e.target.value)}
-                  className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl px-4 py-4 text-2xl text-center font-mono focus:outline-none focus:border-blue-500 transition-colors"
-                  placeholder="Enter Code"
-                />
-              </div>
-              <button 
-                type="submit"
-                disabled={isAuthLoading || !isSupabaseConfigured}
-                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
-              >
-                {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Verify Code'}
-              </button>
-              <button 
-                type="button"
-                onClick={() => setAuthStep('signup')}
-                className="w-full text-xs text-gray-500 hover:text-white transition-colors"
-              >
-                Back to Sign Up
-              </button>
-            </form>
-          )}
-
-          {authStep === 'login' && (
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">Email Address</label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                  <input 
-                    type="email" 
-                    required
-                    value={authEmail}
-                    onChange={(e) => setAuthEmail(e.target.value)}
-                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                    placeholder="name@example.com"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-gray-500 ml-1">Password</label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                  <input 
-                    type="password" 
-                    required
-                    value={authPassword}
-                    onChange={(e) => setAuthPassword(e.target.value)}
-                    className="w-full bg-[#0A0A0A] border border-[#262626] rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors"
-                    placeholder="••••••••"
-                  />
-                </div>
-              </div>
-              <button 
-                type="submit"
-                disabled={isAuthLoading || !isSupabaseConfigured}
-                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
-              >
-                {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sign In'}
-              </button>
-              <p className="text-center text-xs text-gray-500 mt-4">
-                Don't have an account? <button type="button" onClick={() => setAuthStep('signup')} className="text-blue-400 hover:underline">Sign Up</button>
-              </p>
-            </form>
-          )}
-
-          <div className="mt-8 pt-6 border-t border-[#262626] flex items-center justify-between">
-            <button 
-              onClick={() => setCurrentPage('landing')}
-              className="text-xs text-gray-500 hover:text-white transition-colors flex items-center gap-2"
-            >
-              <ArrowLeft className="w-3 h-3" />
-              Back to Landing
-            </button>
-            <button 
-              onClick={() => setCurrentPage('chat')}
-              className="text-xs text-blue-400 hover:text-blue-300 transition-colors font-medium flex items-center gap-2"
-            >
-              Skip for now
-              <ChevronRight className="w-3 h-3" />
-            </button>
-          </div>
-        </motion.div>
-      </div>
+      <AuthPage
+        authStep={authStep}
+        setAuthStep={setAuthStep}
+        authEmail={authEmail}
+        setAuthEmail={setAuthEmail}
+        authPassword={authPassword}
+        setAuthPassword={setAuthPassword}
+        authOtp={authOtp}
+        setAuthOtp={setAuthOtp}
+        authError={authError}
+        isAuthLoading={isAuthLoading}
+        isSupabaseConfigured={isSupabaseConfigured}
+        handleSignUp={handleSignUp}
+        handleVerifyOtp={handleVerifyOtp}
+        handleLogin={handleLogin}
+        setCurrentPage={setCurrentPage}
+      />
     );
   }
 
   if (currentPage === 'integrations') {
-    const integrations = {
-      builtin: [
-        { 
-          id: 'render', 
-          name: 'Render', 
-          desc: 'Deploy your spaces directly to Render.', 
-          icon: <Globe className="w-5 h-5 text-emerald-500" />, 
-          fields: [
-            { label: 'Render API Key', value: '' },
-            { label: 'Service ID', value: '' }
-          ] 
-        },
-        { 
-          id: 'gemini', 
-          name: 'Gemini AI', 
-          desc: 'Power your app with the latest Google AI models.', 
-          icon: <Zap className="w-5 h-5 text-blue-400" />, 
-          fields: [
-            { label: 'Gemini API Key', value: import.meta.env.VITE_GEAR_API || '' }
-          ] 
-        },
-        { id: 'lucide', name: 'Lucide Icons', desc: 'Access 1000+ beautiful icons out of the box.', icon: <PluginIcon className="w-5 h-5 text-purple-400" /> },
-        { id: 'tailwind', name: 'Tailwind CSS', desc: 'Utility-first CSS framework for rapid UI development.', icon: <Layers className="w-5 h-5 text-cyan-400" /> }
-      ],
-      plugins: [
-        { id: 'github', name: 'GitHub', desc: 'Sync your code with GitHub repositories.', icon: <Code className="w-5 h-5" />, fields: [{ label: 'Personal Access Token', value: '' }, { label: 'Repo Name', value: '' }] }
-      ]
-    };
-
-    const handleConnect = (id: string) => {
-      const item = [...integrations.builtin, ...integrations.plugins].find(i => i.id === id);
-      if (item?.fields) {
-        setConfiguringIntegration(id);
-      } else {
-        toggleIntegration(id);
-      }
-    };
-
-    const toggleIntegration = (id: string) => {
-      if (connectedIntegrations.includes(id)) {
-        setConnectedIntegrations(prev => prev.filter(i => i !== id));
-      } else {
-        setConnectedIntegrations(prev => [...prev, id]);
-      }
-      setConfiguringIntegration(null);
-    };
-
     return (
-      <div className="min-h-screen bg-[#0A0A0A] text-white flex flex-col">
-        {/* Integrations Header */}
-        <header className="h-16 border-b border-[#1A1A1A] flex items-center justify-between px-6 bg-[#0A0A0A]/80 backdrop-blur-md sticky top-0 z-[60]">
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setCurrentPage('editor')}
-              className="p-2 hover:bg-[#1A1A1A] rounded-lg transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h1 className="text-lg font-bold tracking-tight">Integrations</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setShowShelf(!showShelf)}
-              className={`p-2 rounded-lg transition-all flex items-center gap-2 ${showShelf ? 'bg-blue-600 text-white' : 'hover:bg-[#1A1A1A] text-gray-400'}`}
-              title="Connected Integrations"
-            >
-              <Library className="w-5 h-5" />
-              <span className="text-xs font-semibold">Shelf</span>
-              {connectedIntegrations.length > 0 && (
-                <span className="bg-white text-blue-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                  {connectedIntegrations.length}
-                </span>
-              )}
-            </button>
-          </div>
-        </header>
-
-        {/* Fixed Sub-navigation Bar */}
-        {!showShelf && (
-          <div className="h-12 border-b border-[#1A1A1A] bg-[#0A0A0A] sticky top-16 z-50 flex items-center px-8 gap-8">
-            <button 
-              onClick={() => setIntegrationsTab('builtin')}
-              className={`text-xs font-bold uppercase tracking-widest transition-all relative h-full flex items-center ${integrationsTab === 'builtin' ? 'text-blue-500' : 'text-gray-500 hover:text-white'}`}
-            >
-              Built-in
-              {integrationsTab === 'builtin' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />}
-            </button>
-            <button 
-              onClick={() => setIntegrationsTab('plugins')}
-              className={`text-xs font-bold uppercase tracking-widest transition-all relative h-full flex items-center ${integrationsTab === 'plugins' ? 'text-purple-500' : 'text-gray-500 hover:text-white'}`}
-            >
-              Plug-in
-              {integrationsTab === 'plugins' && <motion.div layoutId="tab-underline" className="absolute bottom-0 left-0 right-0 h-0.5 bg-purple-500" />}
-            </button>
-          </div>
-        )}
-
-        <main className="flex-1 max-w-6xl mx-auto w-full p-8 space-y-12">
-          {showShelf ? (
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-6"
-            >
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold">Your Connected Shelf</h2>
-                <button onClick={() => setShowShelf(false)} className="text-xs text-blue-400 hover:underline">Back to all</button>
-              </div>
-              {connectedIntegrations.length === 0 ? (
-                <div className="p-12 border border-dashed border-[#262626] rounded-2xl text-center">
-                  <Library className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-                  <p className="text-gray-400">Your shelf is empty. Connect some integrations to see them here!</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {[...integrations.builtin, ...integrations.plugins]
-                    .filter(i => connectedIntegrations.includes(i.id))
-                    .map(item => (
-                      <div key={item.id} className="p-6 bg-[#111] border border-[#262626] rounded-2xl flex items-start gap-4">
-                        <div className="p-3 bg-[#1A1A1A] rounded-xl">{item.icon}</div>
-                        <div className="flex-1">
-                          <h3 className="font-bold">{item.name}</h3>
-                          <p className="text-xs text-gray-400 mt-1">{item.desc}</p>
-                          <div className="mt-4 flex items-center gap-2 text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
-                            <CheckCircle2 className="w-3 h-3" />
-                            Connected
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </motion.div>
-          ) : (
-            <>
-              {/* Active Tab Content */}
-              <section className="space-y-6">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${integrationsTab === 'builtin' ? 'bg-blue-500/10' : 'bg-purple-500/10'}`}>
-                    {integrationsTab === 'builtin' ? <BuiltInIcon className="w-5 h-5 text-blue-500" /> : <PluginIcon className="w-5 h-5 text-purple-500" />}
-                  </div>
-                  <div>
-                    <h2 className="text-xl font-bold">{integrationsTab === 'builtin' ? 'Built-in' : 'Plug-in'}</h2>
-                    <p className="text-xs text-gray-500">
-                      {integrationsTab === 'builtin' ? 'Core features that power Gear Studio spaces.' : 'Extend your app with third-party services.'}
-                    </p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {integrations[integrationsTab].map(item => (
-                    <div key={item.id} className={`group p-6 bg-[#111] border rounded-2xl transition-all ${configuringIntegration === item.id ? 'border-blue-500 ring-1 ring-blue-500/50' : 'border-[#262626] hover:border-gray-700'}`}>
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="p-3 bg-[#1A1A1A] rounded-xl group-hover:scale-110 transition-transform">{item.icon}</div>
-                        <button 
-                          onClick={() => handleConnect(item.id)}
-                          className={`text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-full transition-all ${connectedIntegrations.includes(item.id) ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white text-black hover:bg-gray-200'}`}
-                        >
-                          {connectedIntegrations.includes(item.id) ? 'Connected' : 'Connect'}
-                        </button>
-                      </div>
-                      <h3 className="font-bold">{item.name}</h3>
-                      <p className="text-xs text-gray-400 mt-1 leading-relaxed">{item.desc}</p>
-                      
-                      {configuringIntegration === item.id && (
-                        <motion.div 
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: 'auto', opacity: 1 }}
-                          className="mt-6 pt-6 border-t border-[#262626] space-y-4"
-                        >
-                          {item.fields?.map(field => (
-                            <div key={field.label} className="space-y-1.5">
-                              <label className="text-[10px] uppercase tracking-wider font-bold text-gray-500">{field.label}</label>
-                              <input 
-                                type="password" 
-                                className="w-full bg-[#0A0A0A] border border-[#333] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500"
-                                placeholder={`Enter your ${field.label}`}
-                                defaultValue={field.value}
-                              />
-                            </div>
-                          ))}
-                          <div className="flex gap-2 pt-2">
-                            <button 
-                              onClick={() => toggleIntegration(item.id)}
-                              className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all"
-                            >
-                              Save & Connect
-                            </button>
-                            <button 
-                              onClick={() => setConfiguringIntegration(null)}
-                              className="px-4 py-2 bg-[#1A1A1A] hover:bg-[#262626] rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </motion.div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </section>
-            </>
-          )}
-        </main>
-      </div>
+      <IntegrationsPage
+        setCurrentPage={setCurrentPage}
+        showShelf={showShelf}
+        setShowShelf={setShowShelf}
+        connectedIntegrations={connectedIntegrations}
+        setConnectedIntegrations={setConnectedIntegrations}
+        integrationsTab={integrationsTab}
+        setIntegrationsTab={setIntegrationsTab}
+        configuringIntegration={configuringIntegration}
+        setConfiguringIntegration={setConfiguringIntegration}
+      />
     );
   }
 
   if (currentPage === 'landing') {
     return (
-      <>
-        <AnimatePresence>
-          {showSplash && (
-            <motion.div
-              initial={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.8, ease: "easeInOut" }}
-              className="fixed inset-0 z-[100] bg-[#0A0A0A] flex items-center justify-center overflow-hidden"
-            >
-              <motion.div
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ duration: 1, ease: "easeOut" }}
-                className="relative w-full h-full flex items-center justify-center p-8"
-              >
-                <img
-                  src="https://www.dropbox.com/scl/fi/u97h69xds0zmerbe69pmw/1774586031153-2.png?rlkey=tg24ppj129i9xv5286n8owh5m&st=dp6m0lrf&dl=1"
-                  alt="Gear Studio Splash"
-                  className="max-w-full max-h-full object-contain"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4">
-                  <div className="w-48 h-1 bg-[#262626] rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: "100%" }}
-                      transition={{ duration: 3, ease: "easeInOut" }}
-                      className="h-full bg-blue-600"
-                    />
-                  </div>
-                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-[0.3em] animate-pulse">Initializing Gear Studio...</span>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
-        {/* Navigation */}
-        <nav className="border-b border-slate-200 bg-white/80 backdrop-blur-md sticky top-0 z-50">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between h-16 items-center">
-              <div className="flex items-center gap-2">
-                <div className="bg-indigo-600 p-1.5 rounded-lg">
-                  <Box className="w-6 h-6 text-white" />
-                </div>
-                <span className="font-bold text-xl tracking-tight">Gear<span className="text-indigo-600">Studio</span></span>
-              </div>
-              <div className="hidden md:flex items-center gap-8">
-                <a href="#" className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Features</a>
-                <a href="#" className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Solutions</a>
-                <a href="#" className="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Pricing</a>
-                {session ? (
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm font-medium text-slate-600">Hi, {session.user.user_metadata?.username || session.user.email}</span>
-                    <button 
-                      onClick={() => setCurrentPage('dashboard')}
-                      className="bg-indigo-600 text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-indigo-700 transition-all shadow-sm"
-                    >
-                      Go to App
-                    </button>
-                  </div>
-                ) : (
-                  <button 
-                    onClick={() => {
-                      setCurrentPage('auth');
-                      setAuthStep('signup');
-                    }}
-                    className="bg-indigo-600 text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-indigo-700 transition-all shadow-sm"
-                  >
-                    Get Started
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </nav>
-
-        {/* Hero Section */}
-        <main>
-          <div className="relative overflow-hidden pt-16 pb-32">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-              <div className="text-center">
-                <h1 className="text-5xl md:text-7xl font-extrabold text-slate-900 tracking-tight mb-6">
-                  Build faster with <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-violet-600">Precision Engineering</span>
-                </h1>
-                <p className="max-w-2xl mx-auto text-lg text-slate-600 mb-10">
-                  Turn your natural language ideas into production-ready web applications in seconds. High-performance, scalable, and beautifully designed by default.
-                </p>
-                <div className="flex flex-col sm:flex-row justify-center gap-4">
-                  <button 
-                    onClick={() => {
-                      if (session) {
-                        setCurrentPage('dashboard');
-                      } else {
-                        setCurrentPage('auth');
-                        setAuthStep('signup');
-                      }
-                    }}
-                    className="bg-slate-900 text-white px-8 py-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all"
-                  >
-                    {session ? 'Open Workspace' : 'Start Building Now'}
-                    <ChevronRight className="w-5 h-5" />
-                  </button>
-                  <button className="bg-white border border-slate-200 text-slate-700 px-8 py-4 rounded-xl font-bold hover:bg-slate-50 transition-all shadow-sm">
-                    View Documentation
-                  </button>
-                </div>
-              </div>
-            </div>
-            
-            {/* Abstract background shape */}
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full -z-10 opacity-30 pointer-events-none">
-              <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-200 blur-[120px] rounded-full"></div>
-              <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-violet-200 blur-[120px] rounded-full"></div>
-            </div>
-          </div>
-
-          {/* Features Grid */}
-          <div className="py-24 bg-white">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
-                <div className="group">
-                  <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
-                    <Cpu className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-xl font-bold mb-3">AI Powered</h3>
-                  <p className="text-slate-600 leading-relaxed">Advanced language models drive the engineering process, ensuring code quality and architectural integrity.</p>
-                </div>
-                <div className="group">
-                  <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
-                    <Zap className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-xl font-bold mb-3">Instant Preview</h3>
-                  <p className="text-slate-600 leading-relaxed">See your changes in real-time as you type. Our environment syncs instantly with your development workflow.</p>
-                </div>
-                <div className="group">
-                  <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
-                    <Layers className="w-6 h-6" />
-                  </div>
-                  <h3 className="text-xl font-bold mb-3">Clean Architecture</h3>
-                  <p className="text-slate-600 leading-relaxed">We don't just write code; we build structured, maintainable spaces using industry best practices.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </main>
-
-        <footer className="border-t border-slate-200 py-12 bg-slate-50">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-slate-500 text-sm">
-            <p>© 2024 Gear Studio. Built with Gear AI.</p>
-          </div>
-        </footer>
-      </div>
-    </>
+      <LandingPage
+        session={session}
+        showSplash={showSplash}
+        setCurrentPage={setCurrentPage}
+        setAuthStep={setAuthStep}
+      />
     );
   }
 
@@ -2013,7 +1573,24 @@ export default function App() {
         ) : (
           <div className="flex flex-col h-screen bg-[#0A0A0A] text-white font-sans overflow-hidden">
             {/* Top Header */}
-            <header className="h-12 border-b border-[#262626] flex items-center justify-between px-4 bg-[#0F0F0F] z-20">
+            {['dashboard', 'projects', 'features', 'solutions', 'pricing', 'about'].includes(currentPage) ? (
+              <header className="h-12 border-b border-[#262626] flex items-center justify-between px-4 bg-[#0F0F0F] z-10">
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setIsLeftMenuOpen(true)}
+                    className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-[#262626] transition-colors"
+                    title="Open Menu"
+                  >
+                    <Menu className="w-4 h-4" />
+                  </button>
+                  <span className="font-black text-xs tracking-tighter uppercase text-gray-300 ml-1">GEAR STUDIO</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{spaces.length} Spaces Connected</span>
+                </div>
+              </header>
+            ) : (
+              <header className="h-12 border-b border-[#262626] flex items-center justify-between px-4 bg-[#0F0F0F] z-20">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">
@@ -2100,6 +1677,15 @@ export default function App() {
             <Menu className="w-4 h-4" />
           </button>
 
+          <button 
+            onClick={() => setCurrentPage('dashboard')}
+            className="px-2.5 py-1 bg-[#1A1A1A] hover:bg-[#262626] text-gray-300 hover:text-white border border-[#333] rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 cursor-pointer"
+            title="Back to Home Screen"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back</span>
+          </button>
+
           <AnimatePresence>
             {isMenuOpen && (
               <>
@@ -2151,17 +1737,7 @@ export default function App() {
                       <Download className="w-3.5 h-3.5" />
                       <span>Download Space</span>
                     </button>
-                    <div className="h-[1px] bg-[#262626] my-1" />
-                    <button 
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        setCurrentPage('domains');
-                      }}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
-                    >
-                      <Globe className="w-3.5 h-3.5" />
-                      <span>Domain Settings</span>
-                    </button>
+
                     <button 
                       onClick={async () => {
                         setIsMenuOpen(false);
@@ -2180,10 +1756,11 @@ export default function App() {
           </AnimatePresence>
         </div>
       </header>
+    )}
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar: File Explorer */}
-        {!showPreview && (
+        {!showPreview && currentPage !== 'dashboard' && (
           <div className="w-48 border-r border-[#262626] flex flex-col bg-[#0F0F0F]">
             <div className="p-4 border-b border-[#262626]">
               <p className="text-[9px] font-bold text-gray-500 leading-tight uppercase tracking-wider">
@@ -2220,85 +1797,45 @@ export default function App() {
               ))}
             </div>
             
-            <div className="p-4 border-t border-[#262626]">
-              <button 
-                onClick={() => setCurrentPage('dashboard')}
-                className="w-full flex items-center justify-center gap-2 py-2 bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] rounded-lg text-[10px] font-bold text-gray-400 uppercase tracking-widest transition-all"
-              >
-                <Layout className="w-3 h-3" />
-                Spaces
-              </button>
-            </div>
+
           </div>
         )}
 
         {/* Middle Section: Content Area */}
         <div className="flex-1 flex flex-col bg-[#0A0A0A] relative">
           {currentPage === 'dashboard' ? (
-            <div className="flex-1 flex flex-col p-8 overflow-y-auto custom-scrollbar">
-              <div className="flex items-center justify-between mb-8">
-                <div>
-                  <h1 className="text-2xl font-black tracking-tighter">My Spaces</h1>
-                  <p className="text-xs text-gray-500 uppercase tracking-widest font-bold mt-1">Manage your projects</p>
-                </div>
-                <button 
-                  onClick={handleNewSpace}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-600/20"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  New Space
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {spaces.map(space => (
-                  <div
-                    key={space.id}
-                    onClick={() => {
-                      setCurrentSpace(space);
-                      loadSpaceFiles(space.id);
-                      loadSpaceMessages(space.id);
-                      setCurrentPage('editor');
-                      setShowPreview(true);
-                    }}
-                    className={`p-6 bg-[#0F0F0F] border border-[#262626] rounded-2xl text-left hover:border-blue-600/50 transition-all group relative overflow-hidden cursor-pointer ${currentSpace.id === space.id ? 'ring-1 ring-blue-500/50 border-blue-600/30' : ''}`}
-                  >
-                    <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                      <button 
-                        onClick={(e) => deleteSpace(space.id, e)}
-                        className="p-1.5 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-all"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                    <div className="w-10 h-10 bg-blue-600/10 rounded-xl flex items-center justify-center mb-4 border border-blue-600/20 group-hover:scale-110 transition-transform">
-                      <Box className="w-5 h-5 text-blue-500" />
-                    </div>
-                    <h3 className="text-sm font-bold text-white mb-1 truncate pr-8">{space.name}</h3>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-3">{space.status || 'Draft'}</p>
-                    <p className="text-xs text-gray-400 line-clamp-2 mb-4 h-8">{space.description || 'No description provided.'}</p>
-                    <div className="flex items-center justify-between mt-auto pt-4 border-t border-[#262626]">
-                      <span className="text-[9px] text-gray-600 font-bold uppercase tracking-tighter">{space.updatedAt}</span>
-                      <ChevronRight className="w-3.5 h-3.5 text-gray-600 group-hover:text-blue-500 transition-colors" />
-                    </div>
-                  </div>
-                ))}
-                {spaces.length === 0 && (
-                  <div className="col-span-full py-20 flex flex-col items-center justify-center border-2 border-dashed border-[#262626] rounded-3xl">
-                    <div className="w-12 h-12 bg-[#141414] rounded-2xl flex items-center justify-center mb-4">
-                      <Box className="w-6 h-6 text-gray-600" />
-                    </div>
-                    <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">No spaces found</p>
-                    <button 
-                      onClick={handleNewSpace}
-                      className="mt-4 text-blue-500 text-xs font-bold hover:underline"
-                    >
-                      Create your first space
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
+            <Dashboard
+              spaces={spaces}
+              currentSpace={currentSpace}
+              setCurrentSpace={setCurrentSpace}
+              loadSpaceFiles={loadSpaceFiles}
+              loadSpaceMessages={loadSpaceMessages}
+              setCurrentPage={setCurrentPage}
+              setShowPreview={setShowPreview}
+              handleNewSpace={handleNewSpace}
+              deleteSpace={deleteSpace}
+              aiSettings={aiSettings}
+            />
+          ) : currentPage === 'projects' ? (
+            <ProjectsPage
+              spaces={spaces}
+              currentSpace={currentSpace}
+              setCurrentSpace={setCurrentSpace}
+              loadSpaceFiles={loadSpaceFiles}
+              loadSpaceMessages={loadSpaceMessages}
+              setCurrentPage={setCurrentPage}
+              setShowPreview={setShowPreview}
+              handleNewSpace={handleNewSpace}
+              deleteSpace={deleteSpace}
+            />
+          ) : currentPage === 'features' ? (
+            <FeaturesPage />
+          ) : currentPage === 'solutions' ? (
+            <SolutionsPage />
+          ) : currentPage === 'pricing' ? (
+            <PricingPage />
+          ) : currentPage === 'about' ? (
+            <AboutUsPage />
           ) : currentPage === 'chat' ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
               <div className="w-16 h-16 bg-blue-600/10 rounded-2xl flex items-center justify-center mb-6 border border-blue-600/20">
@@ -2482,11 +2019,13 @@ export default function App() {
         </div>
 
         {/* Right Sidebar: Chat */}
-        {(!showPreview || !isPreviewExpanded) && (
+        {(!showPreview || !isPreviewExpanded) && currentPage === 'editor' && (
           <div className="w-80 border-l border-[#262626] flex flex-col bg-[#0F0F0F]">
-          <div className="p-4 border-b border-[#262626] flex items-center justify-between">
-            <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">AI Assistant</span>
-            <div className="flex items-center gap-1">
+          <div className="p-4 border-b border-[#262626] flex items-center justify-between col-span-1">
+            <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+              {aiSettings.assistantName}
+            </span>
+            <div className="flex items-center gap-1.5">
               <button 
                 onClick={() => setAiMode('fast')}
                 className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-all ${aiMode === 'fast' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
@@ -2499,8 +2038,156 @@ export default function App() {
               >
                 Complex
               </button>
+              <button 
+                onClick={() => setShowAiSettings(!showAiSettings)}
+                className={`p-1 rounded transition-all ${showAiSettings ? 'text-indigo-400 bg-[#1A1A1A] border border-indigo-500/20' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+                title="Personalize AI Coder"
+              >
+                <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+              </button>
             </div>
           </div>
+
+          <AnimatePresence>
+            {showAiSettings && (
+              <motion.div 
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="border-b border-[#262626] bg-[#0A0A0A] p-4 space-y-3 text-xs overflow-hidden"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-indigo-400" /> Persona Customizer
+                  </span>
+                  <button 
+                    onClick={() => {
+                      const defaults = {
+                        assistantName: 'Gear AI',
+                        userName: session?.user?.user_metadata?.username || 'developer',
+                        tone: 'Precise & Technical',
+                        length: 'Concise & Direct',
+                        emojiLevel: 'Standard',
+                        customRules: ''
+                      };
+                      setAiSettings(defaults);
+                      localStorage.setItem('gear_ai_name', defaults.assistantName);
+                      localStorage.setItem('gear_ai_user_name', defaults.userName);
+                      localStorage.setItem('gear_ai_tone', defaults.tone);
+                      localStorage.setItem('gear_ai_length', defaults.length);
+                      localStorage.setItem('gear_ai_emoji', defaults.emojiLevel);
+                      localStorage.setItem('gear_ai_rules', defaults.customRules);
+                    }}
+                    className="text-[9px] font-bold text-gray-500 hover:text-white uppercase tracking-wider transition-colors"
+                  >
+                    Reset
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-wider font-bold text-gray-500">AI Name</label>
+                    <input 
+                      type="text" 
+                      value={aiSettings.assistantName}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAiSettings(prev => ({ ...prev, assistantName: val }));
+                        localStorage.setItem('gear_ai_name', val);
+                      }}
+                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500"
+                      placeholder="e.g. Gear AI"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-wider font-bold text-gray-500">Your Name</label>
+                    <input 
+                      type="text" 
+                      value={aiSettings.userName}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAiSettings(prev => ({ ...prev, userName: val }));
+                        localStorage.setItem('gear_ai_user_name', val);
+                      }}
+                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500"
+                      placeholder="e.g. Doris"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] uppercase tracking-wider font-bold text-gray-500">AI Tone & Attitude</label>
+                  <select 
+                    value={aiSettings.tone}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setAiSettings(prev => ({ ...prev, tone: val }));
+                      localStorage.setItem('gear_ai_tone', val);
+                    }}
+                    className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  >
+                    <option value="Precise & Technical">Precise & Technical (Expert)</option>
+                    <option value="Friendly & Encouraging">Friendly & Encouraging</option>
+                    <option value="Socratic Coach">Socratic Coach</option>
+                    <option value="Witty & Humorous">Witty & Humorous</option>
+                    <option value="Snarky Code Critic">Snarky Code Critic</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-wider font-bold text-gray-500">Response Detail</label>
+                    <select 
+                      value={aiSettings.length}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAiSettings(prev => ({ ...prev, length: val }));
+                        localStorage.setItem('gear_ai_length', val);
+                      }}
+                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                    >
+                      <option value="Concise & Direct">Concise</option>
+                      <option value="Detailed & Explanatory">Detailed</option>
+                      <option value="Raw code only">Raw Code Only</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] uppercase tracking-wider font-bold text-gray-500">Emoji Level</label>
+                    <select 
+                      value={aiSettings.emojiLevel}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAiSettings(prev => ({ ...prev, emojiLevel: val }));
+                        localStorage.setItem('gear_ai_emoji', val);
+                      }}
+                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                    >
+                      <option value="Standard">Standard</option>
+                      <option value="✨ Enthusiastic">✨ Enthusiastic</option>
+                      <option value="🚫 None">None</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[9px] uppercase tracking-wider font-bold text-gray-500">Custom Rules / Instructions</label>
+                  <textarea 
+                    value={aiSettings.customRules}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setAiSettings(prev => ({ ...prev, customRules: val }));
+                      localStorage.setItem('gear_ai_rules', val);
+                    }}
+                    className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500 h-12 max-h-24 resize-y custom-scrollbar"
+                    placeholder="e.g., Always use Tailwind, write CSS in German tags, etc."
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           
           <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
             {messages.map((message) => (
@@ -2590,7 +2277,7 @@ export default function App() {
                     handleSendMessage();
                   }
                 }}
-                placeholder="Ask AI to code something..."
+                placeholder={`Ask ${aiSettings.assistantName} to code something...`}
                 className="w-full bg-[#1A1A1A] border border-[#333] rounded-xl px-4 py-3 pr-10 text-xs focus:outline-none focus:border-blue-500 transition-all resize-none min-h-[80px] max-h-[200px] custom-scrollbar"
               />
               <button 
@@ -2605,14 +2292,9 @@ export default function App() {
             <div className="flex items-center justify-between px-1">
               <div className="flex items-center gap-1">
                 <button 
-                  onClick={() => {
-                    const name = prompt("File name (e.g. style.css):");
-                    if (name) {
-                      setFiles(prev => [...prev, { name, content: '' }]);
-                    }
-                  }}
+                  onClick={() => fileInputRef.current?.click()}
                   className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" 
-                  title="Add File"
+                  title="Upload & Convert File to Text"
                 >
                   <FilePlus className="w-3.5 h-3.5" />
                 </button>
@@ -2807,6 +2489,143 @@ export default function App() {
                   Create Space
                 </button>
               </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+
+    <AnimatePresence>
+      {isLeftMenuOpen && (
+        <div className="fixed inset-0 z-[100] flex">
+          {/* Overlay background */}
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsLeftMenuOpen(false)}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm z-30"
+          />
+          
+          {/* Drawer Panel */}
+          <motion.div
+            initial={{ x: '-100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '-100%' }}
+            transition={{ type: 'tween', duration: 0.25 }}
+            className="relative w-72 h-full bg-[#0F0F0F] border-r border-[#262626] p-6 flex flex-col z-40 shadow-2xl"
+          >
+            {/* Drawer Title & Close Button */}
+            <div className="flex items-center justify-between mb-8 pb-4 border-b border-[#262626]">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">
+                  <Code className="w-4 h-4 text-white" />
+                </div>
+                <span className="font-black text-xs tracking-tighter uppercase text-white">Gear Studio Map</span>
+              </div>
+              <button 
+                onClick={() => setIsLeftMenuOpen(false)}
+                className="p-1 hover:bg-[#1A1A1A] rounded-lg transition-colors text-gray-500 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Navigation Options */}
+            <div className="flex-1 overflow-y-auto space-y-6 custom-scrollbar pr-1">
+              <div className="space-y-1.5 animate-fade-in">
+                <p className="text-[9px] font-black uppercase tracking-widest text-[#555] px-3">Main Navigation</p>
+                
+                <button 
+                  onClick={() => {
+                    setCurrentPage('dashboard');
+                    setIsLeftMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'dashboard' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
+                >
+                  <Home className="w-4 h-4" />
+                  <span>Home Page</span>
+                </button>
+
+                <button 
+                  onClick={() => {
+                    setCurrentPage('projects');
+                    setIsLeftMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'projects' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Box className="w-4 h-4" />
+                    <span>My Projects</span>
+                  </div>
+                  <span className="text-[9px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full font-black">
+                    {spaces.length}
+                  </span>
+                </button>
+              </div>
+
+              <div className="space-y-1.5 pt-2 border-t border-[#1A1A1A]">
+                <p className="text-[9px] font-black uppercase tracking-widest text-[#555] px-3">Product Sections</p>
+                
+                <button 
+                  onClick={() => {
+                    setCurrentPage('features');
+                    setIsLeftMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'features' ? 'bg-[#222] text-white border border-[#333]' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
+                >
+                  <Cpu className="w-4 h-4 text-indigo-400" />
+                  <span>Features</span>
+                </button>
+
+                <button 
+                  onClick={() => {
+                    setCurrentPage('solutions');
+                    setIsLeftMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'solutions' ? 'bg-[#222] text-white border border-[#333]' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
+                >
+                  <Layers className="w-4 h-4 text-indigo-400" />
+                  <span>Solutions</span>
+                </button>
+
+                <button 
+                  onClick={() => {
+                    setCurrentPage('pricing');
+                    setIsLeftMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'pricing' ? 'bg-[#222] text-white border border-[#333]' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
+                >
+                  <ShoppingCart className="w-4 h-4 text-indigo-400" />
+                  <span>Pricing Plans</span>
+                </button>
+
+                <button 
+                  onClick={() => {
+                    setCurrentPage('about');
+                    setIsLeftMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'about' ? 'bg-[#222] text-white border border-[#333]' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
+                >
+                  <Info className="w-4 h-4 text-indigo-400" />
+                  <span>About Us</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="pt-4 border-t border-[#262626] space-y-2">
+              <button 
+                onClick={async () => {
+                  setIsLeftMenuOpen(false);
+                  await supabase.auth.signOut();
+                  setCurrentPage('landing');
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-red-500 hover:bg-red-500/10 transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Sign Out</span>
+              </button>
             </div>
           </motion.div>
         </div>
