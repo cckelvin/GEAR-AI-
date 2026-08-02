@@ -8,7 +8,7 @@ interface DashboardProps {
   setCurrentSpace: (space: Space) => void;
   loadSpaceFiles: (spaceId: string) => void;
   loadSpaceMessages: (spaceId: string) => void;
-  setCurrentPage: (page: 'landing' | 'chat' | 'dashboard' | 'editor' | 'integrations' | 'auth' | 'domains' | 'view' | 'projects' | 'features' | 'solutions' | 'pricing' | 'about') => void;
+  setCurrentPage: (page: 'landing' | 'chat' | 'dashboard' | 'editor' | 'integrations' | 'auth' | 'domains' | 'view' | 'projects' | 'features' | 'solutions' | 'pricing' | 'about' | 'settings') => void;
   setShowPreview: (show: boolean) => void;
   handleNewSpace: () => void;
   deleteSpace: (id: string, e: React.MouseEvent) => void;

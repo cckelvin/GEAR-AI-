@@ -63,8 +63,22 @@ import {
   Mail,
   AlertCircle,
   Sparkles,
+  Brain,
   Info,
-  Heart
+  Heart,
+  Sliders,
+  Key,
+  HelpCircle,
+  Upload,
+  Users,
+  ArrowRight,
+  Paintbrush,
+  Smartphone,
+  Tablet,
+  Monitor,
+  Tv,
+  RotateCw,
+  ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
@@ -80,6 +94,12 @@ import FeaturesPage from './components/FeaturesPage';
 import SolutionsPage from './components/SolutionsPage';
 import PricingPage from './components/PricingPage';
 import AboutUsPage from './components/AboutUsPage';
+import EnvironmentVariablesPage from './components/EnvironmentVariablesPage';
+import SettingsPage from './components/SettingsPage';
+import OverviewPage from './components/OverviewPage';
+import TeamsPage from './components/TeamsPage';
+import MarketPage from './components/MarketPage';
+import AccountPage from './components/AccountPage';
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -93,7 +113,7 @@ const generateId = () => {
 };
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'landing' | 'chat' | 'dashboard' | 'editor' | 'integrations' | 'auth' | 'domains' | 'view' | 'projects' | 'features' | 'solutions' | 'pricing' | 'about'>('landing');
+  const [currentPage, setCurrentPage] = useState<string>('landing');
   const [viewSpace, setViewSpace] = useState<{ space: Space, files: FileData[] } | null>(null);
   const [viewCombinedCode, setViewCombinedCode] = useState('');
   const [isViewLoading, setIsViewLoading] = useState(false);
@@ -112,8 +132,19 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLeftMenuOpen, setIsLeftMenuOpen] = useState(false);
   const [learningMode, setLearningMode] = useState(false);
+  const [activeModel, setActiveModel] = useState<'ionic' | 'iconic'>(() => {
+    return (localStorage.getItem('gear_active_model') as 'ionic' | 'iconic') || 'iconic';
+  });
+  const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
+    return (localStorage.getItem('gear_theme') as 'dark' | 'light') || 'dark';
+  });
   const [showPreview, setShowPreview] = useState(false);
   const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
+  const [previewKey, setPreviewKey] = useState(0);
+  const [previewDevice, setPreviewDevice] = useState<'pc' | 'tablet' | 'phone' | 'tv'>('pc');
+  const [showDeviceMenu, setShowDeviceMenu] = useState(false);
+  const [isRotated, setIsRotated] = useState(false);
+  const [isInspectorActive, setIsInspectorActive] = useState(false);
   const [currentSpace, setCurrentSpace] = useState<Space>({ id: '0', name: 'UNTITLED SPACE', updatedAt: 'Just now' });
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [showCreateSpaceModal, setShowCreateSpaceModal] = useState(false);
@@ -133,6 +164,9 @@ export default function App() {
     emojiLevel: localStorage.getItem('gear_ai_emoji') || 'Standard',
     customRules: localStorage.getItem('gear_ai_rules') || ''
   });
+  const [strictCommands, setStrictCommands] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showTeamPushNotice, setShowTeamPushNotice] = useState(false);
   const [showAiSettings, setShowAiSettings] = useState(false);
 
   // Auto-sync session username to gear_ai_user_name
@@ -155,6 +189,48 @@ export default function App() {
   const [deploymentName, setDeploymentName] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
   const [showDeployModal, setShowDeployModal] = useState(false);
+
+  const [showEnvPage, setShowEnvPage] = useState(false);
+  const [envVars, setEnvVars] = useState<{ id: string, name: string, value: string }[]>([]);
+
+  // Load environment variables for the current space
+  useEffect(() => {
+    if (currentSpace?.id && currentSpace.id !== '0') {
+      const stored = localStorage.getItem(`gear_env_${currentSpace.id}`);
+      if (stored) {
+        try {
+          setEnvVars(JSON.parse(stored));
+        } catch (e) {
+          setEnvVars([]);
+        }
+      } else {
+        setEnvVars([]);
+      }
+    } else {
+      setEnvVars([]);
+    }
+  }, [currentSpace?.id]);
+
+  // Handler to save environment variables
+  const saveEnvVars = (varsList: { id: string, name: string, value: string }[]) => {
+    setEnvVars(varsList);
+    if (currentSpace?.id && currentSpace.id !== '0') {
+      localStorage.setItem(`gear_env_${currentSpace.id}`, JSON.stringify(varsList));
+      
+      // Keep .env.json inside files array as well so it gets backed up/synchronized in Supabase space_files
+      const envJsonStr = JSON.stringify(varsList, null, 2);
+      setFiles(prev => {
+        const idx = prev.findIndex(f => f.name === '.env.json');
+        if (idx >= 0) {
+          const updated = [...prev];
+          updated[idx] = { name: '.env.json', content: envJsonStr };
+          return updated;
+        } else {
+          return [...prev, { name: '.env.json', content: envJsonStr }];
+        }
+      });
+    }
+  };
 
   // Initialize deployment name when modal opens
   useEffect(() => {
@@ -291,10 +367,51 @@ export default function App() {
 
       if (error) throw error;
       if (data && data.length > 0) {
-        setFiles(data.map(f => ({ name: f.file_name, content: f.content })));
+        const loadedFiles = data.map(f => ({ name: f.file_name, content: f.content }));
+        setFiles(loadedFiles);
+
+        // Look for .env.json inside loaded space files to restore environment variables
+        const envFile = loadedFiles.find(f => f.name === '.env.json');
+        if (envFile) {
+          try {
+            const parsed = JSON.parse(envFile.content);
+            if (Array.isArray(parsed)) {
+              setEnvVars(parsed);
+              localStorage.setItem(`gear_env_${spaceId}`, JSON.stringify(parsed));
+            }
+          } catch (e) {
+            console.error('Error parsing .env.json:', e);
+          }
+        } else {
+          const stored = localStorage.getItem(`gear_env_${spaceId}`);
+          if (stored) {
+            try {
+              setEnvVars(JSON.parse(stored));
+            } catch (e) {
+              setEnvVars([]);
+            }
+          } else {
+            setEnvVars([]);
+          }
+        }
+      } else {
+        // Space has no saved files yet - set a clean template
+        setFiles([
+          {
+            name: 'index.html',
+            content: `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>New Space</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4">\n  <div class="text-center space-y-4">\n    <h1 class="text-3xl font-bold text-indigo-400">Welcome</h1>\n    <p class="text-gray-400 text-sm">Start chatting with Gear AI to build your application.</p>\n  </div>\n</body>\n</html>`
+          }
+        ]);
+        setEnvVars([]);
       }
     } catch (err) {
       console.error('Error loading space files:', err);
+      setFiles([
+        {
+          name: 'index.html',
+          content: `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>New Space</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4">\n  <div class="text-center space-y-4">\n    <h1 class="text-3xl font-bold text-indigo-400">Welcome</h1>\n    <p class="text-gray-400 text-sm">Start chatting with Gear AI to build your application.</p>\n  </div>\n</body>\n</html>`
+        }
+      ]);
     }
   };
 
@@ -315,10 +432,23 @@ export default function App() {
           type: m.type as any,
           status: m.status as any
         })));
+      } else {
+        setMessages([]);
       }
     } catch (err) {
       console.error('Error loading space messages:', err);
+      setMessages([]);
     }
+  };
+
+  const handleSelectSpace = (space: Space) => {
+    setCurrentSpace(space);
+    setFiles([]);
+    setMessages([]);
+    setCodingFiles({});
+    localStorage.setItem('gear_current_space_id', space.id);
+    loadSpaceFiles(space.id);
+    loadSpaceMessages(space.id);
   };
 
   const syncSpaceToSupabase = async (space: Space, spaceFiles: FileData[], spaceMessages: Message[]) => {
@@ -614,20 +744,20 @@ export default function App() {
 
   const handleDebug = () => {
     const errorLogs = logs.filter(l => l.type === 'error');
-    if (logs.length === 0) {
+    if (errorLogs.length === 0) {
       const aiMessage: Message = {
         id: generateId(),
         role: 'ai',
-        text: "🔍 **No logs detected yet.**\n\nPlease run your preview and interact with it to generate logs. If you're seeing a specific issue, you can also describe it to me directly!",
+        text: "🔍 **No error found in logs.**",
         status: 'done'
       };
       setMessages(prev => [...prev, aiMessage]);
       return;
     }
 
-    const debugPrompt = errorLogs.length > 0 
-      ? `🚨 **FAULT DETECTED**\n\nI've analyzed the preview logs and found the following errors:\n\n${errorLogs.map(l => `\`[ERROR] ${l.message}\``).join('\n')}\n\nI am now analyzing the code to fix these faults automatically. Please wait...`
-      : `🔍 **LOG ANALYSIS**\n\nI'm reviewing the current logs to ensure everything is running smoothly:\n\n${logs.slice(-5).map(l => `\`[${l.type.toUpperCase()}] ${l.message}\``).join('\n')}\n\nI'll check for any hidden logic issues or optimizations.`;
+    // Is an error is found it should just only send the line of error in the log
+    const errorLine = errorLogs[errorLogs.length - 1].message;
+    const debugPrompt = `🚨 **Error Found in Log:**\n\`${errorLine}\``;
 
     const userMessage: Message = {
       id: generateId(),
@@ -636,8 +766,8 @@ export default function App() {
     };
     setMessages(prev => [...prev, userMessage]);
     
-    // Trigger AI with the actual logs for debugging
-    const fullDebugPrompt = `DEBUGGING REQUEST:\n\nLogs:\n${logs.map(l => `[${l.type.toUpperCase()}] ${l.message}`).join('\n')}\n\nFiles:\n${files.map(f => `File: ${f.name}\n${f.content}`).join('\n\n')}\n\nPlease identify and fix any errors or faults found in the logs.`;
+    // Trigger AI passing the exact files and the single line of error to debug
+    const fullDebugPrompt = `DEBUGGING REQUEST:\nAn error occurred in the workspace logs:\n"Error: ${errorLine}"\n\nHere are the files in the workspace:\n${files.map(f => `File: ${f.name}\n${f.content}`).join('\n\n')}\n\nPlease analyze and fix the bug specifically linked with this error line.`;
     
     setInputValue('');
     handleSendMessage(fullDebugPrompt);
@@ -683,13 +813,24 @@ export default function App() {
     const cssFiles = spaceFiles.filter(f => f.name.endsWith('.css'));
     const cssContent = cssFiles.map(f => `/* ${f.name} */\n${f.content}`).join('\n\n');
 
+    // Build environment variables object
+    const envObj: Record<string, string> = {};
+    envVars.forEach(v => {
+      envObj[v.name] = v.value;
+    });
+
     // Collect all JS files as modules
     const jsFiles = spaceFiles.filter(f => f.name.endsWith('.js') || f.name.endsWith('.ts') || f.name.endsWith('.tsx'));
-    const scripts = jsFiles.map(f => `
-      <script type="module" data-filename="${f.name}">
-        ${f.content.replace(/import\s+.*?\s+from\s+['"].*?['"];?/g, '')}
-      </script>
-    `).join('\n');
+    const scripts = jsFiles.map(f => {
+      let content = f.content.replace(/import\s+.*?\s+from\s+['"].*?['"];?/g, '');
+      // Ensure import.meta.env gets rewritten to window.importMetaEnv
+      content = content.replace(/import\.meta\.env/g, 'window.importMetaEnv');
+      return `
+        <script type="module" data-filename="${f.name}">
+          ${content}
+        </script>
+      `;
+    }).join('\n');
 
     return `
       <!DOCTYPE html>
@@ -697,6 +838,13 @@ export default function App() {
         <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <script>
+            (function() {
+              window.process = window.process || {};
+              window.process.env = ${JSON.stringify(envObj)};
+              window.importMetaEnv = ${JSON.stringify(envObj)};
+            })();
+          </script>
           <script src="https://cdn.tailwindcss.com"></script>
           <script src="https://unpkg.com/lucide@latest"></script>
           <script>
@@ -738,6 +886,23 @@ export default function App() {
               window.onerror = (message, source, lineno, colno, error) => {
                 sendToParent('error', [message, \`at \${lineno}:\${colno}\`]);
               };
+
+              // Prevent loading Gear Studio inside this iframe via relative links
+              document.addEventListener('click', function(e) {
+                const anchor = e.target.closest('a');
+                if (anchor) {
+                  const href = anchor.getAttribute('href');
+                  if (href) {
+                    if (href.startsWith('#')) return;
+                    const isRelative = !/^[a-z]+:\/\//i.test(href);
+                    const isHostDomain = href.includes(window.location.host);
+                    if (isRelative || isHostDomain) {
+                      e.preventDefault();
+                      sendToParent('warn', ['Navigation within preview prevented to avoid reloading workspace.']);
+                    }
+                  }
+                }
+              }, true);
             })();
           </script>
           ${headContent}
@@ -1271,6 +1436,21 @@ export default function App() {
     handleSendMessage();
   };
 
+  if (currentPage === 'settings') {
+    return (
+      <SettingsPage
+        spaces={spaces}
+        activeModel={activeModel}
+        setActiveModel={setActiveModel}
+        themeMode={themeMode}
+        setThemeMode={setThemeMode}
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+        onClose={() => setCurrentPage('dashboard')}
+      />
+    );
+  }
+
   if (currentPage === 'auth') {
     return (
       <AuthPage
@@ -1573,7 +1753,7 @@ export default function App() {
         ) : (
           <div className="flex flex-col h-screen bg-[#0A0A0A] text-white font-sans overflow-hidden">
             {/* Top Header */}
-            {['dashboard', 'projects', 'features', 'solutions', 'pricing', 'about'].includes(currentPage) ? (
+            {['dashboard', 'projects', 'features', 'solutions', 'pricing', 'about', 'overview', 'teams', 'market', 'account'].includes(currentPage) ? (
               <header className="h-12 border-b border-[#262626] flex items-center justify-between px-4 bg-[#0F0F0F] z-10">
                 <div className="flex items-center gap-2">
                   <button 
@@ -1590,172 +1770,220 @@ export default function App() {
                 </div>
               </header>
             ) : (
-              <header className="h-12 border-b border-[#262626] flex items-center justify-between px-4 bg-[#0F0F0F] z-20">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">
-              <Code className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-black text-xs tracking-tighter uppercase">GEAR STUDIO</span>
-          </div>
-          {activeTasksCount > 0 && (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 rounded-full">
-              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-spin" />
-              <span className="text-[9px] font-bold text-blue-500 uppercase tracking-tighter">
-                {activeTasksCount} Active Tasks
-              </span>
-            </div>
-          )}
-          <div className="h-4 w-[1px] bg-[#262626]" />
-          <div className="flex items-center gap-1">
-            <button 
-              onClick={() => setShowLogs(!showLogs)}
-              className={`p-1.5 rounded transition-colors ${showLogs ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
-              title="See Preview Logs"
-            >
-              <Terminal className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={handleDebug}
-              className={`p-1.5 rounded transition-colors ${logs.some(l => l.type === 'error') ? 'bg-red-500/20 text-red-500 animate-pulse' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`} 
-              title="AI Debug Faults"
-            >
-              <Bug className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={() => {
-                setShowPreview(!showPreview);
-                if (currentPage !== 'editor') {
-                  setCurrentPage('editor');
-                }
-              }}
-              className={`p-1.5 rounded transition-colors ${showPreview ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
-              title="Preview Space"
-            >
-              <Eye className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={() => {
-                setCurrentPage('editor');
-                setShowPreview(false);
-              }}
-              className={`p-1.5 rounded transition-colors ${currentPage === 'editor' && !showPreview ? 'bg-[#262626] text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
-              title="View Code"
-            >
-              <Code className="w-4 h-4" />
-            </button>
-            <div className="h-4 w-[1px] bg-[#262626] mx-1" />
-          </div>
-        </div>
+              <header className="h-12 border-b border-[#262626] flex items-center justify-between px-3 bg-[#0F0F0F] z-20 select-none">
+                {/* Left controls: Back button + Mode icons (>_ </ > ▶ ⚙) */}
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setCurrentPage('dashboard')}
+                    className="w-7 h-7 rounded-full bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] text-gray-300 hover:text-white flex items-center justify-center transition-all shadow-sm"
+                    title="Back to Dashboard"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                  </button>
 
-        <div className="flex items-center gap-2">
-          <div className="px-3 py-1 bg-[#1A1A1A] border border-[#333] rounded-full text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-            {currentSpace.name}
-            <span className={`w-1.5 h-1.5 rounded-full ${currentSpace.status === 'deployed' ? 'bg-green-500' : 'bg-yellow-500'}`} />
-            {isSyncing && (
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              >
-                <RefreshCw className="w-2.5 h-2.5 text-blue-500" />
-              </motion.div>
-            )}
-          </div>
-          {activeTasksCount > 0 && (
-            <div className="px-2 py-1 bg-indigo-600/20 border border-indigo-500/30 rounded-full text-[8px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1.5 animate-pulse">
-              <Zap className="w-2.5 h-2.5" />
-              {activeTasksCount} Active {activeTasksCount === 1 ? 'Task' : 'Tasks'}
-            </div>
-          )}
-        </div>
+                  <div className="h-4 w-[1px] bg-[#262626] mx-0.5" />
 
-        <div className="flex items-center gap-2 relative">
-          <button 
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className={`p-1.5 rounded transition-colors ${isMenuOpen ? 'bg-[#262626] text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
-          >
-            <Menu className="w-4 h-4" />
-          </button>
-
-          <button 
-            onClick={() => setCurrentPage('dashboard')}
-            className="px-2.5 py-1 bg-[#1A1A1A] hover:bg-[#262626] text-gray-300 hover:text-white border border-[#333] rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 cursor-pointer"
-            title="Back to Home Screen"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back</span>
-          </button>
-
-          <AnimatePresence>
-            {isMenuOpen && (
-              <>
-                <div 
-                  className="fixed inset-0 z-30" 
-                  onClick={() => setIsMenuOpen(false)} 
-                />
-                <motion.div
-                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                  transition={{ duration: 0.2 }}
-                  className="absolute top-full right-0 mt-2 w-48 bg-[#0F0F0F] border border-[#262626] rounded-xl shadow-2xl z-40 overflow-hidden"
-                >
-                  <div className="p-2 space-y-1">
+                  <div className="flex items-center gap-1 bg-[#141414] p-1 rounded-xl border border-[#222]">
                     <button 
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        setShowDeployModal(true);
-                      }}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-emerald-400 hover:bg-emerald-500/10 transition-all"
+                      onClick={() => setShowLogs(!showLogs)}
+                      className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${showLogs ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                      title="Console / Terminal (>_)"
                     >
-                      <Globe className="w-3.5 h-3.5" />
-                      <span>Deploy to Render</span>
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-bold">&gt;_</span>
                     </button>
+
                     <button 
                       onClick={() => {
-                        setIsMenuOpen(false);
-                        setCurrentPage('integrations');
+                        setCurrentPage('editor');
+                        setShowPreview(false);
+                        setShowEnvPage(false);
                       }}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
+                      className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${currentPage === 'editor' && !showPreview && !showEnvPage ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                      title="Code Editor (</>)"
                     >
                       <Code className="w-3.5 h-3.5" />
-                      <span>Sync to GitHub</span>
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        // Export logic
-                        const blob = new Blob([JSON.stringify({ space: currentSpace, files }, null, 2)], { type: 'application/json' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `${currentSpace.name.toLowerCase().replace(/\s+/g, '-')}-export.json`;
-                        a.click();
-                      }}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Download Space</span>
+                      <span className="text-[10px] font-bold">&lt;/&gt;</span>
                     </button>
 
                     <button 
-                      onClick={async () => {
-                        setIsMenuOpen(false);
-                        await supabase.auth.signOut();
-                        setCurrentPage('landing');
+                      onClick={() => {
+                        setShowPreview(!showPreview);
+                        setShowEnvPage(false);
+                        if (currentPage !== 'editor') {
+                          setCurrentPage('editor');
+                        }
                       }}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-red-500 hover:bg-red-500/10 transition-all"
+                      className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${showPreview ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                      title="Play / Preview (▶)"
                     >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Sign Out</span>
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                    </button>
+
+                    <button 
+                      onClick={() => setCurrentPage('settings')}
+                      className={`px-2 py-1 rounded-lg text-xs transition-all flex items-center ${(currentPage as string) === 'settings' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                      title="Settings (⚙)"
+                    >
+                      <Settings className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>
-        </div>
-      </header>
+                </div>
+
+                {/* Center: VERSION (31) badge */}
+                <div className="flex items-center gap-2">
+                  <div className="px-3 py-1 bg-[#141414] border border-[#2A2A2A] rounded-full flex items-center gap-2 shadow-inner">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                    <span className="text-[11px] font-extrabold tracking-wider text-gray-300 font-mono">
+                      VERSION <span className="text-blue-400">(31)</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Right controls: Secrets, Plugins, Export, Help, PUSH TO TEAM */}
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => {
+                      setShowEnvPage(true);
+                      setShowPreview(false);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 border ${showEnvPage ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40' : 'bg-[#141414] text-gray-300 hover:text-white border-[#262626] hover:bg-[#1A1A1A]'}`}
+                    title="Secrets & Environment Variables"
+                  >
+                    <Key className="w-3.5 h-3.5 text-yellow-500" />
+                    <span>Secrets</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setCurrentPage('integrations')}
+                    className="px-2.5 py-1 bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] text-gray-300 hover:text-white rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5"
+                    title="Plugins & Integrations"
+                  >
+                    <PluginIcon className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Plugins</span>
+                  </button>
+
+                  <button 
+                    onClick={() => {
+                      const blob = new Blob([JSON.stringify({ space: currentSpace, files }, null, 2)], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${currentSpace.name.toLowerCase().replace(/\s+/g, '-')}-export.json`;
+                      a.click();
+                    }}
+                    className="px-2.5 py-1 bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] text-gray-300 hover:text-white rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5"
+                    title="Export Space Code"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Export</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setShowHelpModal(true)}
+                    className="w-7 h-7 rounded-lg bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] text-gray-400 hover:text-white flex items-center justify-center transition-all text-xs font-bold"
+                    title="Help & Info"
+                  >
+                    <HelpCircle className="w-4 h-4 text-gray-400 hover:text-white" />
+                  </button>
+
+                  <button 
+                    onClick={() => setShowTeamPushNotice(true)}
+                    className="px-3 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-lg shadow-blue-600/20 active:scale-95 cursor-pointer"
+                    title="Push workspace changes to team"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>PUSH TO TEAM</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setIsMenuOpen(!isMenuOpen)}
+                    className={`p-1.5 rounded-lg transition-colors ${isMenuOpen ? 'bg-[#262626] text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
+                  >
+                    <Menu className="w-4 h-4" />
+                  </button>
+
+                  <AnimatePresence>
+                    {isMenuOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-30" 
+                          onClick={() => setIsMenuOpen(false)} 
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          transition={{ duration: 0.2 }}
+                          className="absolute top-full right-0 mt-2 w-48 bg-[#0F0F0F] border border-[#262626] rounded-xl shadow-2xl z-40 overflow-hidden"
+                        >
+                          <div className="p-2 space-y-1">
+                            <button 
+                              onClick={() => {
+                                setIsMenuOpen(false);
+                                setShowDeployModal(true);
+                              }}
+                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-emerald-400 hover:bg-emerald-500/10 transition-all"
+                            >
+                              <Globe className="w-3.5 h-3.5" />
+                              <span>Deploy to Render</span>
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setIsMenuOpen(false);
+                                setShowEnvPage(true);
+                                setShowPreview(false); // To render the config page inside the middle content area
+                              }}
+                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-[#EAB308] hover:bg-yellow-500/10 transition-all"
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                              <span>Environment Variables</span>
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setIsMenuOpen(false);
+                                setCurrentPage('integrations');
+                              }}
+                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
+                            >
+                              <Code className="w-3.5 h-3.5" />
+                              <span>Sync to GitHub</span>
+                            </button>
+                            <button 
+                              onClick={() => {
+                                setIsMenuOpen(false);
+                                // Export logic
+                                const blob = new Blob([JSON.stringify({ space: currentSpace, files }, null, 2)], { type: 'application/json' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `${currentSpace.name.toLowerCase().replace(/\s+/g, '-')}-export.json`;
+                                a.click();
+                              }}
+                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download Space</span>
+                            </button>
+
+                            <button 
+                              onClick={async () => {
+                                setIsMenuOpen(false);
+                                await supabase.auth.signOut();
+                                setCurrentPage('landing');
+                              }}
+                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-red-500 hover:bg-red-500/10 transition-all"
+                            >
+                              <ArrowLeft className="w-3.5 h-3.5" />
+                              <span>Sign Out</span>
+                            </button>
+                          </div>
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </header>
     )}
 
       <div className="flex-1 flex overflow-hidden">
@@ -1770,31 +1998,35 @@ export default function App() {
               </p>
             </div>
             <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-              {files.map((file, idx) => (
-                <button
-                  key={file.name}
-                  onClick={() => {
-                    setActiveFileIndex(idx);
-                    setCurrentPage('editor');
-                    setShowPreview(false);
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-3 transition-all group ${
-                    activeFileIndex === idx && currentPage === 'editor'
-                      ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' 
-                      : 'hover:bg-[#1A1A1A] text-gray-500 hover:text-gray-300'
-                  } ${Object.values(codingFiles).includes(file.name) ? 'ring-1 ring-blue-500/50 animate-pulse' : ''}`}
-                >
-                  <FileCode className={`w-3.5 h-3.5 ${activeFileIndex === idx && currentPage === 'editor' ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
-                  <span className="truncate flex-1">{file.name}</span>
-                  {Object.values(codingFiles).includes(file.name) && (
-                    <div className="flex gap-0.5">
-                      <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1 h-1 bg-blue-500 rounded-full" />
-                      <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1 h-1 bg-blue-500 rounded-full" />
-                      <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1 h-1 bg-blue-500 rounded-full" />
-                    </div>
-                  )}
-                </button>
-              ))}
+              {files.map((file, idx) => {
+                if (file.name === '.env.json') return null;
+                return (
+                  <button
+                    key={file.name}
+                    onClick={() => {
+                      setActiveFileIndex(idx);
+                      setCurrentPage('editor');
+                      setShowPreview(false);
+                      setShowEnvPage(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-3 transition-all group ${
+                      activeFileIndex === idx && currentPage === 'editor'
+                        ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' 
+                        : 'hover:bg-[#1A1A1A] text-gray-500 hover:text-gray-300'
+                    } ${Object.values(codingFiles).includes(file.name) ? 'ring-1 ring-blue-500/50 animate-pulse' : ''}`}
+                  >
+                    <FileCode className={`w-3.5 h-3.5 ${activeFileIndex === idx && currentPage === 'editor' ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
+                    <span className="truncate flex-1">{file.name}</span>
+                    {Object.values(codingFiles).includes(file.name) && (
+                      <div className="flex gap-0.5">
+                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1 h-1 bg-blue-500 rounded-full" />
+                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1 h-1 bg-blue-500 rounded-full" />
+                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1 h-1 bg-blue-500 rounded-full" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
             
 
@@ -1827,6 +2059,34 @@ export default function App() {
               setShowPreview={setShowPreview}
               handleNewSpace={handleNewSpace}
               deleteSpace={deleteSpace}
+            />
+          ) : currentPage === 'overview' ? (
+            <OverviewPage
+              spaces={spaces}
+              currentSpace={currentSpace}
+              setCurrentPage={setCurrentPage}
+            />
+          ) : currentPage === 'teams' ? (
+            <TeamsPage
+              spaces={spaces}
+              currentSpace={currentSpace}
+            />
+          ) : currentPage === 'market' ? (
+            <MarketPage
+              currentSpace={currentSpace}
+              setCurrentPage={setCurrentPage}
+              setShowPreview={setShowPreview}
+            />
+          ) : currentPage === 'account' ? (
+            <AccountPage
+              session={session}
+              authEmail={authEmail}
+              activeModel={activeModel}
+              setCurrentPage={setCurrentPage}
+              handleSignOut={async () => {
+                await supabase.auth.signOut();
+                setCurrentPage('landing');
+              }}
             />
           ) : currentPage === 'features' ? (
             <FeaturesPage />
@@ -1868,60 +2128,200 @@ export default function App() {
                 </button>
               </div>
             </div>
+          ) : showEnvPage ? (
+            <EnvironmentVariablesPage
+              currentSpace={currentSpace}
+              envVars={envVars}
+              saveEnvVars={saveEnvVars}
+              onClose={() => setShowEnvPage(false)}
+            />
           ) : showPreview ? (
             <div className="flex-1 flex flex-col overflow-hidden bg-[#0A0A0A] relative">
               {/* Preview Header / Device Bar */}
-              <div className="h-10 border-b border-[#262626] bg-[#0F0F0F] flex items-center justify-between px-4 select-none shrink-0">
-                <div className="flex items-center gap-2">
+              <div className="h-11 border-b border-[#262626] bg-[#0F0F0F] flex items-center justify-between px-4 select-none shrink-0 gap-3">
+                {/* Left: Preview Title & Paintbrush Inspector */}
+                <div className="flex items-center gap-2 shrink-0">
                   <div className="flex gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-red-500/80" />
-                    <span className="w-2 h-2 rounded-full bg-yellow-500/80" />
-                    <span className="w-2 h-2 rounded-full bg-green-500/80" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/80" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-green-500/80" />
                   </div>
-                  <div className="h-4 w-[1px] bg-[#262626] mx-2" />
-                  <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Live Preview</span>
+                  <div className="h-4 w-[1px] bg-[#262626] mx-1" />
+                  <span className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5 mr-1">
+                    <Eye className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Preview</span>
+                  </span>
+
+                  {/* Paintbrush Inspector Button */}
+                  <button 
+                    onClick={() => setIsInspectorActive(!isInspectorActive)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${isInspectorActive ? 'bg-indigo-600 text-white border-indigo-400 shadow-lg shadow-indigo-600/30' : 'bg-[#141414] text-gray-400 hover:text-white border-[#262626] hover:bg-[#222]'}`}
+                    title="Paintbrush Tool: Click to tap and apprehend any element on the website"
+                  >
+                    <Paintbrush className={`w-3.5 h-3.5 ${isInspectorActive ? 'animate-bounce' : 'text-indigo-400'}`} />
+                    <span className="hidden sm:inline">Inspector</span>
+                  </button>
                 </div>
                 
-                {/* Simulated URL Bar */}
-                <div className="hidden sm:flex items-center bg-[#141414] border border-[#262626] rounded px-3 py-0.5 w-[28rem] justify-center">
-                  <Globe className="w-3 h-3 text-gray-600 mr-2 shrink-0" />
-                  <span className="text-[9px] font-mono text-gray-500 truncate select-all">{currentSpace.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}.gearstudio.space</span>
+                {/* Center: Device View Selector Dropdown (showing active device only) & Rotate button */}
+                <div className="flex-1 max-w-xl flex items-center gap-2 justify-center">
+                  {/* Single Device Dropdown button showing only active device */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowDeviceMenu(!showDeviceMenu)}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-[#141414] hover:bg-[#1E1E1E] border border-[#262626] hover:border-[#3a3a3a] rounded-xl text-xs font-bold text-white transition-all cursor-pointer shadow-sm"
+                      title="Device preview mode"
+                    >
+                      {previewDevice === 'pc' && <Monitor className="w-3.5 h-3.5 text-indigo-400" />}
+                      {previewDevice === 'tablet' && <Tablet className="w-3.5 h-3.5 text-indigo-400" />}
+                      {previewDevice === 'phone' && <Smartphone className="w-3.5 h-3.5 text-indigo-400" />}
+                      {previewDevice === 'tv' && <Tv className="w-3.5 h-3.5 text-indigo-400" />}
+                      <span>Device ({previewDevice === 'pc' ? 'PC' : previewDevice === 'tablet' ? 'Tablet' : previewDevice === 'phone' ? 'Phone' : 'TV'})</span>
+                      <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform duration-200 ${showDeviceMenu ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showDeviceMenu && (
+                      <div 
+                        className="absolute left-0 top-full mt-1.5 w-44 bg-[#141414] border border-[#262626] rounded-xl shadow-2xl z-50 p-1 space-y-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          onClick={() => {
+                            setPreviewDevice('pc');
+                            setShowDeviceMenu(false);
+                          }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'pc' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
+                        >
+                          <Monitor className="w-3.5 h-3.5" />
+                          <span>PC / Desktop</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPreviewDevice('tablet');
+                            setShowDeviceMenu(false);
+                          }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'tablet' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
+                        >
+                          <Tablet className="w-3.5 h-3.5" />
+                          <span>Tablet (768px)</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPreviewDevice('phone');
+                            setShowDeviceMenu(false);
+                          }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'phone' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
+                        >
+                          <Smartphone className="w-3.5 h-3.5" />
+                          <span>Phone (375px)</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPreviewDevice('tv');
+                            setShowDeviceMenu(false);
+                          }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'tv' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
+                        >
+                          <Tv className="w-3.5 h-3.5" />
+                          <span>TV (Widescreen)</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Rotate Orientation Button */}
+                  <button 
+                    onClick={() => setIsRotated(!isRotated)}
+                    className={`p-1.5 border rounded-xl transition-all cursor-pointer ${isRotated ? 'bg-indigo-600 text-white border-indigo-400 shadow' : 'bg-[#141414] border-[#262626] text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                    title={`Rotate Orientation (${isRotated ? 'Landscape' : 'Portrait'})`}
+                  >
+                    <RotateCw className={`w-3.5 h-3.5 transition-transform duration-300 ${isRotated ? 'rotate-90' : ''}`} />
+                  </button>
+
+                  {/* Refresh icon button */}
+                  <button 
+                    onClick={() => setPreviewKey(k => k + 1)}
+                    className="p-1.5 bg-[#141414] hover:bg-[#222] border border-[#262626] rounded-xl text-gray-400 hover:text-white transition-colors cursor-pointer"
+                    title="Refresh Live Preview"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
-                <div className="flex items-center gap-2">
+                {/* Right: Open in Browser button & Expand toggle */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <button 
+                    onClick={() => {
+                      const blob = new Blob([combinedCode], { type: 'text/html' });
+                      const url = URL.createObjectURL(blob);
+                      window.open(url, '_blank');
+                    }}
+                    className="px-3 py-1.5 bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] hover:border-[#444] rounded-lg text-xs font-black uppercase tracking-wider text-white transition-all flex items-center gap-2 cursor-pointer shadow-sm active:scale-95"
+                    title="Open live preview in external browser tab"
+                  >
+                    <span>Open in Browser</span>
+                    <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
+                  </button>
+
                   <button 
                     onClick={() => setIsPreviewExpanded(!isPreviewExpanded)}
-                    className="p-1 px-2.5 bg-[#1F1F1F] hover:bg-[#2A2A2A] text-gray-400 hover:text-white border border-[#333] rounded text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer"
+                    className="p-1.5 bg-[#1F1F1F] hover:bg-[#2A2A2A] text-gray-400 hover:text-white border border-[#333] rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer"
                     title={isPreviewExpanded ? "Collapse View" : "Expand Full Screen"}
                   >
-                    {isPreviewExpanded ? (
-                      <>
-                        <Minimize2 className="w-3 h-3" />
-                        Collapse
-                      </>
-                    ) : (
-                      <>
-                        <Maximize2 className="w-3 h-3" />
-                        Expand
-                      </>
-                    )}
+                    {isPreviewExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
                   </button>
                 </div>
               </div>
 
-              <div className="flex-1 bg-white relative">
+              {/* Inspector Banner Notification */}
+              {isInspectorActive && (
+                <div className="bg-indigo-600 text-white text-xs font-bold py-1.5 px-4 flex items-center justify-between shrink-0 shadow-inner z-20">
+                  <div className="flex items-center gap-2">
+                    <Paintbrush className="w-4 h-4 animate-bounce" />
+                    <span>Paintbrush Inspector Active: Click any element in the preview below to apprehend & inspect it!</span>
+                  </div>
+                  <button 
+                    onClick={() => setIsInspectorActive(false)} 
+                    className="px-2 py-0.5 bg-indigo-700 hover:bg-indigo-800 rounded text-[10px] font-black uppercase tracking-wider text-white cursor-pointer"
+                  >
+                    Done
+                  </button>
+                </div>
+              )}
+
+              {/* Responsive Device Viewport Container */}
+              <div className="flex-1 bg-[#0A0A0A] relative overflow-auto flex items-center justify-center p-4 custom-scrollbar">
                 {isSyncing && (
                   <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-10">
                     <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-4" />
                     <p className="text-sm font-bold text-gray-900 uppercase tracking-widest animate-pulse">Bundling Space...</p>
                   </div>
                 )}
-                <iframe
-                  srcDoc={combinedCode}
-                  className="w-full h-full border-none"
-                  title="Preview"
-                  sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"
-                />
+                
+                <div 
+                  className={`transition-all duration-300 bg-white relative shadow-2xl ${
+                    previewDevice === 'phone'
+                      ? isRotated 
+                        ? 'w-[667px] h-[375px] max-w-full rounded-2xl border-4 border-[#1F1F1F]' 
+                        : 'w-[375px] h-[667px] max-h-full rounded-2xl border-4 border-[#1F1F1F]'
+                      : previewDevice === 'tablet'
+                      ? isRotated 
+                        ? 'w-[900px] h-[650px] max-w-full rounded-2xl border-4 border-[#1F1F1F]' 
+                        : 'w-[768px] h-[880px] max-h-full rounded-2xl border-4 border-[#1F1F1F]'
+                      : previewDevice === 'tv'
+                      ? 'w-full h-full max-w-[1440px] rounded-xl border border-[#222]'
+                      : 'w-full h-full'
+                  } ${isInspectorActive ? 'ring-4 ring-indigo-500/80' : ''}`}
+                >
+                  <iframe
+                    key={previewKey}
+                    srcDoc={combinedCode}
+                    className="w-full h-full border-none rounded-lg"
+                    title="Preview"
+                    sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"
+                  />
+                </div>
               </div>
 
               {showLogs && (
@@ -2020,7 +2420,7 @@ export default function App() {
 
         {/* Right Sidebar: Chat */}
         {(!showPreview || !isPreviewExpanded) && currentPage === 'editor' && (
-          <div className="w-80 border-l border-[#262626] flex flex-col bg-[#0F0F0F]">
+          <div className="w-80 border-l border-[#262626] flex flex-col bg-[#0F0F0F] relative">
           <div className="p-4 border-b border-[#262626] flex items-center justify-between col-span-1">
             <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
               {aiSettings.assistantName}
@@ -2190,64 +2590,130 @@ export default function App() {
           </AnimatePresence>
           
           <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-            {messages.map((message) => (
-              <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[90%] p-3 rounded-2xl text-xs ${
-                  message.role === 'user' 
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
-                    : message.isError 
-                      ? 'error-message' 
-                      : 'bg-[#1A1A1A] text-gray-300 border border-[#333]'
-                }`}>
-                  {message.role === 'ai' ? (
-                    <div className="markdown-body">
-                      <Markdown
-                        components={{
-                          code({ node, className, children, ...props }) {
-                            const match = /language-(\w+)(?::(.+))?/.exec(className || '');
-                            const fileName = match ? match[2] : null;
-                            const isBlock = className?.includes('language-');
+            {messages.map((message) => {
+              const activeCodingFile = codingFiles[message.id];
+              let thoughtText = '';
+              let mainText = message.text;
 
-                            if (isBlock && fileName) {
-                              return (
-                                <div className="relative group/code">
-                                  <div className="absolute right-2 top-2 opacity-0 group-hover/code:opacity-100 transition-opacity z-10">
-                                    <button 
-                                      onClick={() => handleApplyCode(fileName, String(children))}
-                                      className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[9px] font-bold uppercase text-white shadow-lg"
-                                    >
-                                      Apply to {fileName}
-                                    </button>
-                                  </div>
-                                  <pre className={className}>
-                                    <code>{children}</code>
-                                  </pre>
-                                </div>
-                              );
-                            }
-                            return <code className={className} {...props}>{children}</code>;
-                          }
-                        }}
-                      >
-                        {message.text}
-                      </Markdown>
-                    </div>
-                  ) : message.text}
+              if (message.role === 'ai') {
+                const thoughtMatch = message.text.match(/<thought>([\s\S]*?)(?:<\/thought>|$)/i);
+                if (thoughtMatch) {
+                  thoughtText = thoughtMatch[1].trim();
+                  mainText = message.text.replace(/<thought>[\s\S]*?(?:<\/thought>|$)/i, '').trim();
+                }
+              }
+
+              return (
+                <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[92%] p-3 rounded-2xl text-xs ${
+                    message.role === 'user' 
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
+                      : message.isError 
+                        ? 'error-message' 
+                        : 'bg-[#18181F] text-gray-300 border border-[#2D2D3D]'
+                  }`}>
+                    {message.role === 'ai' ? (
+                      <div className="space-y-3">
+                        {/* File Coding Tab Badge with Rolling Animation */}
+                        {activeCodingFile && (
+                          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#121826] border border-blue-500/40 rounded-xl shadow-lg">
+                            <motion.div
+                              animate={{ rotate: 360 }}
+                              transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                              className="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full"
+                            />
+                            <FileCode className="w-3.5 h-3.5 text-blue-400" />
+                            <span className="text-[11px] font-mono font-bold text-blue-300">
+                              Coding <span className="underline">{activeCodingFile}</span>...
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Google AI Studio Reasoning Thought Box */}
+                        {thoughtText && (
+                          <div className="bg-[#0F0F16] border border-[#252538] rounded-xl overflow-hidden shadow-2xl">
+                            <div className="px-3 py-1.5 bg-[#171724] border-b border-[#252538] flex items-center justify-between text-[10px] font-mono text-purple-300">
+                              <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider">
+                                <Brain className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+                                <span>Reasoning Thought</span>
+                              </div>
+                              <span className="text-[9px] text-gray-500 font-sans">Google AI Studio Process</span>
+                            </div>
+                            <div className="p-3 text-[11px] font-mono text-gray-400 whitespace-pre-wrap leading-relaxed select-text">
+                              {thoughtText}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Main Markdown Response Body */}
+                        {mainText ? (
+                          <div className="markdown-body">
+                            <Markdown
+                              components={{
+                                code({ node, className, children, ...props }) {
+                                  const match = /language-(\w+)(?::(.+))?/.exec(className || '');
+                                  const fileName = match ? match[2] : null;
+                                  const isBlock = className?.includes('language-');
+
+                                  if (isBlock && fileName) {
+                                    return (
+                                      <div className="relative group/code">
+                                        <div className="absolute right-2 top-2 opacity-0 group-hover/code:opacity-100 transition-opacity z-10">
+                                          <button 
+                                            onClick={() => handleApplyCode(fileName, String(children))}
+                                            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[9px] font-bold uppercase text-white shadow-lg"
+                                          >
+                                            Apply to {fileName}
+                                          </button>
+                                        </div>
+                                        <pre className={className}>
+                                          <code>{children}</code>
+                                        </pre>
+                                      </div>
+                                    );
+                                  }
+                                  return <code className={className} {...props}>{children}</code>;
+                                }
+                              }}
+                            >
+                              {mainText}
+                            </Markdown>
+                            {message.status === 'generating' && (
+                              <motion.span 
+                                animate={{ opacity: [0, 1, 0] }}
+                                transition={{ repeat: Infinity, duration: 0.8 }}
+                                className="inline-block w-2 h-4 bg-blue-500 ml-1 font-mono align-middle"
+                              />
+                            )}
+                          </div>
+                        ) : message.status === 'generating' ? (
+                          <div className="flex items-center gap-2 text-gray-400 text-xs py-1">
+                            <motion.span 
+                              animate={{ opacity: [0, 1, 0] }}
+                              transition={{ repeat: Infinity, duration: 0.8 }}
+                              className="inline-block w-2 h-4 bg-blue-500 font-mono"
+                            />
+                            <span className="animate-pulse">Reasoning...</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : message.text}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             <div ref={chatEndRef} />
           </div>
 
-          <div className="p-4 border-t border-[#262626] space-y-3">
+          <div className="p-2.5 border-t border-[#262626] space-y-2">
             {images.length > 0 && (
-              <div className="flex flex-wrap gap-2 px-1">
+              <div className="flex flex-wrap gap-1.5 px-0.5">
                 {images.map((img, idx) => (
                   <div key={idx} className="relative group">
                     <img 
                       src={`data:${img.mimeType};base64,${img.data}`} 
                       alt="Upload" 
-                      className="w-12 h-12 rounded-lg object-cover border border-[#333]"
+                      className="w-10 h-10 rounded-lg object-cover border border-[#333]"
                     />
                     <button 
                       onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
@@ -2277,58 +2743,70 @@ export default function App() {
                     handleSendMessage();
                   }
                 }}
-                placeholder={`Ask ${aiSettings.assistantName} to code something...`}
-                className="w-full bg-[#1A1A1A] border border-[#333] rounded-xl px-4 py-3 pr-10 text-xs focus:outline-none focus:border-blue-500 transition-all resize-none min-h-[80px] max-h-[200px] custom-scrollbar"
+                placeholder="Imagine..."
+                className="w-full bg-[#1A1A1A] border border-[#333] rounded-xl px-3 py-2 pr-10 text-xs focus:outline-none focus:border-blue-500 transition-all resize-none min-h-[42px] max-h-[110px] custom-scrollbar shadow-inner"
               />
               <button 
                 onClick={() => handleSendMessage()}
                 disabled={isGenerating || !inputValue.trim()}
-                className="absolute right-2 bottom-2 p-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded-lg transition-all shadow-lg shadow-blue-600/20"
+                className="absolute right-1.5 bottom-1.5 w-7 h-7 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-full transition-all shadow-md shadow-blue-600/30 flex items-center justify-center active:scale-95 cursor-pointer"
+                title="Send Prompt (->)"
               >
-                <ArrowUp className="w-4 h-4" />
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            <div className="flex items-center justify-between px-1">
+            {/* Sketch Toolbar: Upload file (+), Mic (🎙), Strict Commands (!), Model selection (IONIC GEAR ⚙) */}
+            <div className="flex items-center justify-between px-0.5 pt-0.5">
               <div className="flex items-center gap-1">
                 <button 
                   onClick={() => fileInputRef.current?.click()}
-                  className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" 
-                  title="Upload & Convert File to Text"
+                  className="w-6 h-6 rounded-full bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] text-gray-400 hover:text-white flex items-center justify-center transition-all cursor-pointer" 
+                  title="Upload file (+)"
                 >
-                  <FilePlus className="w-3.5 h-3.5" />
+                  <Plus className="w-3 h-3" />
                 </button>
-                <button className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" title="Voice Input">
-                  <Mic className="w-3.5 h-3.5" />
-                </button>
+
                 <button 
-                  onClick={() => setMessages([])}
-                  className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors" 
-                  title="Reset Chat"
+                  className="w-6 h-6 rounded-full bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] text-gray-400 hover:text-white flex items-center justify-center transition-all cursor-pointer" 
+                  title="Mic (Voice Input)"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
+                  <Mic className="w-3 h-3" />
+                </button>
+
+                <button 
+                  onClick={() => setStrictCommands(!strictCommands)}
+                  className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider transition-all flex items-center gap-1 border cursor-pointer ${
+                    strictCommands 
+                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-sm' 
+                      : 'bg-[#1A1A1A] text-gray-400 hover:text-gray-200 border-[#333] hover:bg-[#262626]'
+                  }`}
+                  title="Toggle Strict Commands mode"
+                >
+                  <span className="font-mono font-black text-amber-400">!</span>
+                  <span>Strict Commands</span>
                 </button>
               </div>
-              <div className="flex items-center gap-1">
-                <button className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors">
-                  <Search className="w-3.5 h-3.5" />
-                </button>
-                <button className="p-1.5 hover:bg-[#262626] rounded text-gray-500 hover:text-white transition-colors">
-                  <Settings className="w-3.5 h-3.5" />
+
+              {/* Model selection pill */}
+              <div className="flex items-center">
+                <button 
+                  onClick={() => {
+                    const nextModel = activeModel === 'ionic' ? 'iconic' : 'ionic';
+                    setActiveModel(nextModel);
+                    localStorage.setItem('gear_active_model', nextModel);
+                  }}
+                  className="px-2 py-0.5 bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] hover:border-[#444] rounded-full text-[9px] font-black uppercase tracking-wider text-blue-400 hover:text-blue-300 transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                  title="Model Selection"
+                >
+                  <span>{activeModel === 'ionic' ? 'IONIC GEAR' : 'ICONIC GEAR'}</span>
+                  <Settings className="w-2.5 h-2.5 text-gray-400" />
                 </button>
               </div>
-            </div>
-            
-            <div className="pt-1">
-              <button 
-                onClick={() => setCurrentPage('integrations')}
-                className="w-full py-2 px-4 bg-[#1A1A1A] border border-[#333] hover:border-[#444] rounded-lg text-[10px] uppercase tracking-wider font-semibold text-gray-400 hover:text-white transition-all flex items-center justify-center gap-2"
-              >
-                <Cpu className="w-3 h-3" />
-                Integrations
-              </button>
             </div>
           </div>
+
+
         </div>
         )}
       </div>
@@ -2531,86 +3009,112 @@ export default function App() {
               </button>
             </div>
 
-            {/* Navigation Options */}
-            <div className="flex-1 overflow-y-auto space-y-6 custom-scrollbar pr-1">
-              <div className="space-y-1.5 animate-fade-in">
-                <p className="text-[9px] font-black uppercase tracking-widest text-[#555] px-3">Main Navigation</p>
-                
-                <button 
-                  onClick={() => {
-                    setCurrentPage('dashboard');
-                    setIsLeftMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'dashboard' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
-                >
-                  <Home className="w-4 h-4" />
-                  <span>Home Page</span>
-                </button>
+            {/* Navigation Options - Hand Drawn Sketch Menu List */}
+            <div className="flex-1 overflow-y-auto space-y-2.5 custom-scrollbar pr-1 pt-2">
+              <button 
+                onClick={() => {
+                  setCurrentPage('overview');
+                  setIsLeftMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'overview' ? 'bg-[#1E1E1E] text-white border-blue-500 shadow-lg shadow-blue-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Eye className="w-4 h-4 text-blue-400" />
+                  <span>OVERVIEW</span>
+                </div>
+              </button>
 
-                <button 
-                  onClick={() => {
-                    setCurrentPage('projects');
-                    setIsLeftMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'projects' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Box className="w-4 h-4" />
-                    <span>My Projects</span>
-                  </div>
-                  <span className="text-[9px] bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full font-black">
-                    {spaces.length}
-                  </span>
-                </button>
-              </div>
+              <button 
+                onClick={() => {
+                  setCurrentPage('projects');
+                  setIsLeftMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'projects' || currentPage === 'spaces' ? 'bg-[#1E1E1E] text-white border-indigo-500 shadow-lg shadow-indigo-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Box className="w-4 h-4 text-indigo-400" />
+                  <span>SPACES</span>
+                </div>
+                <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-md font-bold">{spaces.length}</span>
+              </button>
 
-              <div className="space-y-1.5 pt-2 border-t border-[#1A1A1A]">
-                <p className="text-[9px] font-black uppercase tracking-widest text-[#555] px-3">Product Sections</p>
-                
-                <button 
-                  onClick={() => {
-                    setCurrentPage('features');
-                    setIsLeftMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'features' ? 'bg-[#222] text-white border border-[#333]' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
-                >
-                  <Cpu className="w-4 h-4 text-indigo-400" />
-                  <span>Features</span>
-                </button>
+              <button 
+                onClick={() => {
+                  setCurrentPage('market');
+                  setIsLeftMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'market' ? 'bg-[#1E1E1E] text-white border-emerald-500 shadow-lg shadow-emerald-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <ShoppingCart className="w-4 h-4 text-emerald-400" />
+                  <span>MARKET</span>
+                </div>
+              </button>
 
-                <button 
-                  onClick={() => {
-                    setCurrentPage('solutions');
-                    setIsLeftMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'solutions' ? 'bg-[#222] text-white border border-[#333]' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
-                >
-                  <Layers className="w-4 h-4 text-indigo-400" />
-                  <span>Solutions</span>
-                </button>
+              <button 
+                onClick={() => {
+                  setCurrentPage('teams');
+                  setIsLeftMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'teams' ? 'bg-[#1E1E1E] text-white border-purple-500 shadow-lg shadow-purple-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Users className="w-4 h-4 text-purple-400" />
+                  <span>TEAMS</span>
+                </div>
+              </button>
 
-                <button 
-                  onClick={() => {
-                    setCurrentPage('pricing');
-                    setIsLeftMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'pricing' ? 'bg-[#222] text-white border border-[#333]' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
-                >
-                  <ShoppingCart className="w-4 h-4 text-indigo-400" />
-                  <span>Pricing Plans</span>
-                </button>
+              <button 
+                onClick={() => {
+                  setCurrentPage('pricing');
+                  setIsLeftMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'pricing' ? 'bg-[#1E1E1E] text-white border-amber-500 shadow-lg shadow-amber-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Sliders className="w-4 h-4 text-amber-400" />
+                  <span>PRICING</span>
+                </div>
+              </button>
 
-                <button 
-                  onClick={() => {
-                    setCurrentPage('about');
-                    setIsLeftMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all ${currentPage === 'about' ? 'bg-[#222] text-white border border-[#333]' : 'text-gray-400 hover:text-white hover:bg-[#1A1A1A]'}`}
-                >
-                  <Info className="w-4 h-4 text-indigo-400" />
-                  <span>About Us</span>
-                </button>
-              </div>
+              <button 
+                onClick={() => {
+                  setCurrentPage('account');
+                  setIsLeftMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'account' ? 'bg-[#1E1E1E] text-white border-cyan-500 shadow-lg shadow-cyan-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <User className="w-4 h-4 text-cyan-400" />
+                  <span>ACCOUNT</span>
+                </div>
+              </button>
+
+              <button 
+                onClick={() => {
+                  setCurrentPage('integrations');
+                  setIsLeftMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'integrations' ? 'bg-[#1E1E1E] text-white border-teal-500 shadow-lg shadow-teal-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <PluginIcon className="w-4 h-4 text-teal-400" />
+                  <span>CONNECTION</span>
+                </div>
+              </button>
+
+              <button 
+                onClick={() => {
+                  setCurrentPage('settings');
+                  setIsLeftMenuOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'settings' ? 'bg-[#1E1E1E] text-white border-gray-400 shadow-lg shadow-gray-400/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <Settings className="w-4 h-4 text-gray-400" />
+                  <span>SETTINGS</span>
+                </div>
+              </button>
             </div>
 
             {/* Bottom Actions */}
@@ -2693,6 +3197,110 @@ export default function App() {
                   Cancel
                 </button>
               </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+
+    {/* Help Modal */}
+    <AnimatePresence>
+      {showHelpModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowHelpModal(false)}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            className="relative w-full max-w-md bg-[#111] border border-[#262626] rounded-2xl p-6 shadow-2xl overflow-hidden z-10"
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-[#222]">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-blue-500" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Help & Keyboard Shortcuts</h3>
+              </div>
+              <button onClick={() => setShowHelpModal(false)} className="text-gray-400 hover:text-white p-1 rounded-lg">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="py-4 space-y-3 text-xs text-gray-300">
+              <div className="flex items-center justify-between p-2 bg-[#1A1A1A] rounded-lg border border-[#262626]">
+                <span className="font-medium text-gray-400">&gt;_ Terminal / Logs</span>
+                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-blue-400">Toggle Icon</kbd>
+              </div>
+              <div className="flex items-center justify-between p-2 bg-[#1A1A1A] rounded-lg border border-[#262626]">
+                <span className="font-medium text-gray-400">&lt;/&gt; Code View</span>
+                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-blue-400">Editor Mode</kbd>
+              </div>
+              <div className="flex items-center justify-between p-2 bg-[#1A1A1A] rounded-lg border border-[#262626]">
+                <span className="font-medium text-gray-400">▶ Live Preview</span>
+                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-blue-400">Preview Mode</kbd>
+              </div>
+              <div className="flex items-center justify-between p-2 bg-[#1A1A1A] rounded-lg border border-[#262626]">
+                <span className="font-medium text-gray-400">! Strict Commands</span>
+                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-amber-400">Strict AI Enforcement</kbd>
+              </div>
+              <div className="flex items-center justify-between p-2 bg-[#1A1A1A] rounded-lg border border-[#262626]">
+                <span className="font-medium text-gray-400">Secrets / .env</span>
+                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-yellow-400">Key Icon</kbd>
+              </div>
+            </div>
+            <button 
+              onClick={() => setShowHelpModal(false)}
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
+            >
+              Close
+            </button>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+
+    {/* Push to Team Modal */}
+    <AnimatePresence>
+      {showTeamPushNotice && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowTeamPushNotice(false)}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            className="relative w-full max-w-sm bg-[#111] border border-[#262626] rounded-2xl p-6 shadow-2xl text-center z-10"
+          >
+            <div className="w-12 h-12 bg-blue-600/20 text-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-blue-500/30">
+              <Users className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-black text-white uppercase tracking-wider mb-2">Push to Team Space</h3>
+            <p className="text-xs text-gray-400 mb-6 leading-relaxed">
+              Synchronizing all space code, environment variables, and active model preferences with your organization workspace team members.
+            </p>
+            <div className="space-y-2">
+              <button 
+                onClick={() => {
+                  setShowTeamPushNotice(false);
+                }}
+                className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-blue-600/30 cursor-pointer"
+              >
+                Confirm Push to Team
+              </button>
+              <button 
+                onClick={() => setShowTeamPushNotice(false)}
+                className="w-full py-2.5 bg-transparent hover:bg-[#1A1A1A] text-gray-400 hover:text-white text-xs font-medium rounded-xl transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
             </div>
           </motion.div>
         </div>

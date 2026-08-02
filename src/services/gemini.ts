@@ -40,6 +40,7 @@ export function getSystemInstruction(settings?: {
   length?: string;
   emojiLevel?: string;
   customRules?: string;
+  activeModel?: 'ionic' | 'iconic';
 }) {
   const name = settings?.assistantName || "Gear AI";
   const user = settings?.userName || "developer";
@@ -47,6 +48,7 @@ export function getSystemInstruction(settings?: {
   const length = settings?.length || "Concise & Direct";
   const emojiLevel = settings?.emojiLevel || "Standard";
   const customRules = settings?.customRules || "";
+  const activeModel = settings?.activeModel || "iconic";
 
   let toneInstruction = "";
   if (tone === 'Precise & Technical') {
@@ -79,8 +81,42 @@ export function getSystemInstruction(settings?: {
     emojiInstruction = "Use emojis moderately and professionally, only to highlight specific steps or code blocks.";
   }
 
+  const isIconic = activeModel === 'iconic';
+
+  const iconicInstruction = isIconic ? `
+MODEL MODE: ICONIC GEAR (Full Intelligence & Full Website Builder Engine)
+- ICONIC GEAR is built for full-scale website engineering and deep product strategy.
+- Google AI Studio Thought Process (CRITICAL):
+  ALWAYS wrap your internal reasoning, product analysis, and technical plan inside a <thought>...</thought> block at the very beginning of your response.
+  For example:
+  <thought>
+  Analyzing request to build a full chatting application...
+  Identifying key architectural patterns (similar to WhatsApp / Facebook Messenger).
+  Planning screens:
+  1. Splash & Onboarding
+  2. Active Contacts & Friends List
+  3. Private One-on-One Chat (/open private chat)
+  4. Group Channels & Public Rooms
+  5. User Profile & Preferences
+  Formulating initial discovery questions to clarify design, features, and assets...
+  </thought>
+
+- Discovery & Clarification Stage:
+  If the user asks to build a new app, website, or concept (e.g. "build a chat app", "e-commerce store", "social network") and hasn't answered discovery questions yet:
+  1. Output your <thought> reasoning block first.
+  2. Ask 3-4 key structural questions to fully understand their vision (e.g., Target audience/purpose, UI design aesthetic/theme, core features like private vs group chats, branding/color palette ideas).
+  3. Provide a visual mapped out interface flow plan (e.g., Splash Screen -> Friends Feed -> Private Chat -> Group Chat -> Settings).
+  4. Also provide the initial bootstrap code (or ask if they want to adjust the plan first before generating code). If the user explicitly asks to build right away or provides answers, proceed directly with full modular HTML/JS/CSS code!
+` : `
+MODEL MODE: IONIC GEAR (Fast Direct Compiler)
+- IONIC GEAR is focused on high-speed direct updates and instant code execution without preliminary discovery questions.
+- Keep responses ultra-direct and focus on instant file generation.
+`;
+
   return `You are ${name}, a world-class engineer and product designer. Your goal is to turn natural language into polished, production-ready web applications.
 You are chatting with ${user}. Always address them by this name when appropriate.
+
+${iconicInstruction}
 
 Persona/Tone Instructions:
 - ${toneInstruction}
@@ -117,12 +153,7 @@ Core Directives:
 13. File Analysis: When a user uploads a file, analyze its content thoroughly. If it's a code file, use it as a reference or integrate it into the project. If it's a text file, use the information within to guide your design or logic.
 
 Interaction Style:
-- Be concise. State your intent in one sentence, then provide the code.
-- Provide ONLY the code blocks for the files that need to be created or updated. If a request only affects one file, do not output the others.
-- Do not include any text outside of the code blocks unless absolutely necessary for clarification.
-- You are coding directly in the user's editor. The user will see your changes in real-time.
-- CRITICAL: DO NOT explain the code in the chat. The user can see the code in the editor. Only provide a brief summary of what you've done.
-- CRITICAL: ALWAYS include the filename in the code block label (e.g., \`\`\`html:index.html\`).`;
+- ALWAYS include the filename in the code block label (e.g., \`\`\`html:index.html\`).`;
 }
 
 const SYSTEM_INSTRUCTION = getSystemInstruction();
@@ -139,6 +170,7 @@ export async function generateCodeResponseStream(
     length?: string;
     emojiLevel?: string;
     customRules?: string;
+    activeModel?: 'ionic' | 'iconic';
   }
 ) {
   const contents = [...history];
@@ -187,6 +219,7 @@ export async function generateCodeResponse(
     length?: string;
     emojiLevel?: string;
     customRules?: string;
+    activeModel?: 'ionic' | 'iconic';
   }
 ) {
   const contents = [...history];

@@ -116,9 +116,6 @@ export default function LandingPage({
                     {session ? 'Open Workspace' : 'Start Building Now'}
                     <ChevronRight className="w-5 h-5" />
                   </button>
-                  <button className="bg-white border border-slate-200 text-slate-700 px-8 py-4 rounded-xl font-bold hover:bg-slate-50 transition-all shadow-sm">
-                    View Documentation
-                  </button>
                 </div>
               </div>
             </div>
