@@ -1,5 +1,6 @@
 {
   "name": "Gear Studio",
   "description": "A high-performance AI coding assistant that turns natural language into production-ready web applications.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

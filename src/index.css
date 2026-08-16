@@ -2,7 +2,7 @@
 
 @layer base {
   body {
-    @apply bg-[#0A0A0A] text-white antialiased;
+    @apply bg-black text-white antialiased;
   }
 }
 
@@ -19,11 +19,11 @@
     border-radius: 10px;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #333;
+    background: #404040;
   }
 
   .markdown-body {
-    @apply text-gray-300 leading-relaxed;
+    @apply text-neutral-300 leading-relaxed;
   }
   .markdown-body h1, .markdown-body h2, .markdown-body h3 {
     @apply font-bold text-white mt-4 mb-2;
@@ -32,16 +32,17 @@
     @apply mb-3;
   }
   .markdown-body code {
-    @apply bg-[#262626] px-1.5 py-0.5 rounded text-blue-400 font-mono text-[11px];
+    @apply bg-neutral-900 px-1.5 py-0.5 rounded text-neutral-100 border border-neutral-800 font-mono text-[11px];
   }
   .markdown-body pre {
-    @apply bg-[#0A0A0A] p-3 rounded-xl border border-[#262626] my-4 overflow-x-auto;
+    @apply bg-black p-3 rounded-xl border border-neutral-800 my-4 overflow-x-auto text-neutral-100;
   }
   .markdown-body ul, .markdown-body ol {
-    @apply ml-4 mb-4 list-disc;
+    @apply ml-4 mb-4 list-disc text-neutral-300;
   }
 
   .error-message {
-    @apply bg-red-900/20 border border-red-500/30 text-red-400 p-3 rounded-xl text-[11px] leading-relaxed;
+    @apply bg-neutral-900 border border-neutral-700 text-neutral-200 p-3 rounded-xl text-[11px] leading-relaxed;
   }
 }
+

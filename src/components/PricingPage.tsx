@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, Sparkles, HelpCircle, Shield, CreditCard } from 'lucide-react';
+import { Check, Sparkles } from 'lucide-react';
 
 export default function PricingPage() {
   const plans = [
@@ -10,10 +10,10 @@ export default function PricingPage() {
       desc: "Perfect for testing layouts, drafting CSS headers, and exploring prompt-driven creation.",
       features: [
         "Up to 3 design workspaces",
-        "Standard Gemini 3.5 Assistant chat",
+        "Standard Assistant chat",
         "Instant live sandbox rendering",
         "Public preview links",
-        "Github OAuth synchronization"
+        "Github synchronization"
       ],
       cta: "Current Tier",
       popular: false
@@ -53,15 +53,13 @@ export default function PricingPage() {
   ];
 
   return (
-    <div className="flex-1 flex flex-col p-8 overflow-y-auto custom-scrollbar bg-[#0A0A0A] text-white relative">
-      <div className="absolute top-12 left-1/4 w-[500px] h-[500px] bg-indigo-500/5 blur-[120px] rounded-full pointer-events-none" />
-
+    <div className="flex-1 flex flex-col p-8 overflow-y-auto custom-scrollbar bg-black text-white relative">
       <div className="max-w-5xl mx-auto w-full space-y-12 py-8 relative z-10">
         {/* Title Block */}
-        <div className="text-center space-y-3 pb-6 border-b border-[#1F1F1F]">
-          <span className="text-[10px] font-black uppercase text-indigo-400 tracking-[0.2em]">Affordable Access</span>
-          <h1 className="text-3xl md:text-4xl font-black tracking-tight">Flexible Pricing Plans</h1>
-          <p className="text-gray-400 text-xs max-w-lg mx-auto">
+        <div className="text-center space-y-3 pb-6 border-b border-neutral-800">
+          <span className="text-[10px] font-black uppercase text-neutral-400 tracking-[0.2em]">Affordable Access</span>
+          <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white">Flexible Pricing Plans</h1>
+          <p className="text-neutral-400 text-xs max-w-lg mx-auto">
             Choose the membership tier that aligns with your engineering, sandboxing, and web template scaling goals.
           </p>
         </div>
@@ -71,29 +69,29 @@ export default function PricingPage() {
           {plans.map((p, idx) => (
             <div 
               key={idx}
-              className={`p-8 bg-[#0F0F0F] border rounded-2xl flex flex-col justify-between hover:border-indigo-500/50 transition-colors relative ${p.popular ? 'border-indigo-600 ring-1 ring-indigo-500/30' : 'border-[#1F1F1F]'}`}
+              className={`p-8 bg-neutral-950 border rounded-2xl flex flex-col justify-between hover:border-white transition-colors relative ${p.popular ? 'border-white ring-1 ring-white/30' : 'border-neutral-800'}`}
             >
               {p.popular && (
-                <div className="absolute top-0 right-1/2 translate-x-1/2 -translate-y-1/2 px-3 py-1 bg-indigo-600 border border-indigo-500/30 text-[9px] font-black uppercase tracking-wider rounded-full text-white flex items-center gap-1">
-                  <Sparkles className="w-3 h-3" /> Most Popular
+                <div className="absolute top-0 right-1/2 translate-x-1/2 -translate-y-1/2 px-3 py-1 bg-white border border-neutral-300 text-[9px] font-black uppercase tracking-wider rounded-full text-black flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-black" /> Most Popular
                 </div>
               )}
               
               <div className="space-y-6">
                 <div>
                   <h3 className="font-bold text-md text-white">{p.name}</h3>
-                  <p className="text-xs text-gray-500 mt-1">{p.desc}</p>
+                  <p className="text-xs text-neutral-400 mt-1">{p.desc}</p>
                 </div>
 
                 <div className="flex items-baseline gap-1">
                   <span className="text-3xl font-black text-white">{p.price}</span>
-                  {p.period && <span className="text-xs text-gray-500 font-bold">/ {p.period}</span>}
+                  {p.period && <span className="text-xs text-neutral-400 font-bold">/ {p.period}</span>}
                 </div>
 
                 <ul className="space-y-3 pt-2">
                   {p.features.map((f, fIdx) => (
-                    <li key={fIdx} className="flex items-start gap-2 text-xs text-gray-400">
-                      <Check className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                    <li key={fIdx} className="flex items-start gap-2 text-xs text-neutral-400">
+                      <Check className="w-4 h-4 text-white shrink-0 mt-0.5" />
                       <span>{f}</span>
                     </li>
                   ))}
@@ -102,8 +100,7 @@ export default function PricingPage() {
 
               <div className="pt-8">
                 <button 
-                  type="button"
-                  className={`w-full py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${p.popular ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/10' : 'bg-[#161616] hover:bg-[#1E1E1E] text-gray-300'}`}
+                  className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${p.popular ? 'bg-white hover:bg-neutral-200 text-black shadow-lg' : 'bg-neutral-900 hover:bg-neutral-800 text-white border border-neutral-700'}`}
                 >
                   {p.cta}
                 </button>

@@ -100,6 +100,7 @@ import OverviewPage from './components/OverviewPage';
 import TeamsPage from './components/TeamsPage';
 import MarketPage from './components/MarketPage';
 import AccountPage from './components/AccountPage';
+import AiMessageItem from './components/AiMessageItem';
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -1786,7 +1787,7 @@ export default function App() {
                   <div className="flex items-center gap-1 bg-[#141414] p-1 rounded-xl border border-[#222]">
                     <button 
                       onClick={() => setShowLogs(!showLogs)}
-                      className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${showLogs ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                      className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${showLogs ? 'bg-white text-black shadow-md' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
                       title="Console / Terminal (>_)"
                     >
                       <Terminal className="w-3.5 h-3.5" />
@@ -1799,7 +1800,7 @@ export default function App() {
                         setShowPreview(false);
                         setShowEnvPage(false);
                       }}
-                      className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${currentPage === 'editor' && !showPreview && !showEnvPage ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                      className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${currentPage === 'editor' && !showPreview && !showEnvPage ? 'bg-white text-black shadow-md' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
                       title="Code Editor (</>)"
                     >
                       <Code className="w-3.5 h-3.5" />
@@ -1814,7 +1815,7 @@ export default function App() {
                           setCurrentPage('editor');
                         }
                       }}
-                      className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${showPreview ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                      className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${showPreview ? 'bg-white text-black shadow-md' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
                       title="Play / Preview (▶)"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
@@ -1822,7 +1823,7 @@ export default function App() {
 
                     <button 
                       onClick={() => setCurrentPage('settings')}
-                      className={`px-2 py-1 rounded-lg text-xs transition-all flex items-center ${(currentPage as string) === 'settings' ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                      className={`px-2 py-1 rounded-lg text-xs transition-all flex items-center ${(currentPage as string) === 'settings' ? 'bg-white text-black shadow-md' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
                       title="Settings (⚙)"
                     >
                       <Settings className="w-3.5 h-3.5" />
@@ -1833,9 +1834,9 @@ export default function App() {
                 {/* Center: VERSION (31) badge */}
                 <div className="flex items-center gap-2">
                   <div className="px-3 py-1 bg-[#141414] border border-[#2A2A2A] rounded-full flex items-center gap-2 shadow-inner">
-                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                    <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
                     <span className="text-[11px] font-extrabold tracking-wider text-gray-300 font-mono">
-                      VERSION <span className="text-blue-400">(31)</span>
+                      VERSION <span className="text-white">(31)</span>
                     </span>
                   </div>
                 </div>
@@ -1847,10 +1848,10 @@ export default function App() {
                       setShowEnvPage(true);
                       setShowPreview(false);
                     }}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 border ${showEnvPage ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40' : 'bg-[#141414] text-gray-300 hover:text-white border-[#262626] hover:bg-[#1A1A1A]'}`}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 border ${showEnvPage ? 'bg-neutral-800 text-white border-neutral-600' : 'bg-[#141414] text-gray-300 hover:text-white border-[#262626] hover:bg-[#1A1A1A]'}`}
                     title="Secrets & Environment Variables"
                   >
-                    <Key className="w-3.5 h-3.5 text-yellow-500" />
+                    <Key className="w-3.5 h-3.5 text-neutral-300" />
                     <span>Secrets</span>
                   </button>
 
@@ -1859,7 +1860,7 @@ export default function App() {
                     className="px-2.5 py-1 bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] text-gray-300 hover:text-white rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5"
                     title="Plugins & Integrations"
                   >
-                    <PluginIcon className="w-3.5 h-3.5 text-indigo-400" />
+                    <PluginIcon className="w-3.5 h-3.5 text-neutral-300" />
                     <span>Plugins</span>
                   </button>
 
@@ -1875,7 +1876,7 @@ export default function App() {
                     className="px-2.5 py-1 bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] text-gray-300 hover:text-white rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5"
                     title="Export Space Code"
                   >
-                    <Upload className="w-3.5 h-3.5 text-emerald-400" />
+                    <Upload className="w-3.5 h-3.5 text-neutral-300" />
                     <span>Export</span>
                   </button>
 
@@ -1889,10 +1890,10 @@ export default function App() {
 
                   <button 
                     onClick={() => setShowTeamPushNotice(true)}
-                    className="px-3 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-lg shadow-blue-600/20 active:scale-95 cursor-pointer"
+                    className="px-3 py-1 bg-white hover:bg-neutral-200 text-black rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-lg active:scale-95 cursor-pointer"
                     title="Push workspace changes to team"
                   >
-                    <Users className="w-3.5 h-3.5" />
+                    <Users className="w-3.5 h-3.5 text-black" />
                     <span>PUSH TO TEAM</span>
                   </button>
 
@@ -1923,9 +1924,9 @@ export default function App() {
                                 setIsMenuOpen(false);
                                 setShowDeployModal(true);
                               }}
-                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-emerald-400 hover:bg-emerald-500/10 transition-all"
+                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-white hover:bg-neutral-800 transition-all"
                             >
-                              <Globe className="w-3.5 h-3.5" />
+                              <Globe className="w-3.5 h-3.5 text-neutral-300" />
                               <span>Deploy to Render</span>
                             </button>
                             <button 
@@ -1934,9 +1935,9 @@ export default function App() {
                                 setShowEnvPage(true);
                                 setShowPreview(false); // To render the config page inside the middle content area
                               }}
-                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-[#EAB308] hover:bg-yellow-500/10 transition-all"
+                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-neutral-300 hover:bg-neutral-800 transition-all"
                             >
-                              <Sliders className="w-3.5 h-3.5" />
+                              <Sliders className="w-3.5 h-3.5 text-neutral-400" />
                               <span>Environment Variables</span>
                             </button>
                             <button 
@@ -1946,7 +1947,7 @@ export default function App() {
                               }}
                               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
                             >
-                              <Code className="w-3.5 h-3.5" />
+                              <Code className="w-3.5 h-3.5 text-neutral-400" />
                               <span>Sync to GitHub</span>
                             </button>
                             <button 
@@ -1987,14 +1988,14 @@ export default function App() {
     )}
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar: File Explorer */}
-        {!showPreview && currentPage !== 'dashboard' && (
+        {/* Left Sidebar: File Explorer - ONLY shown when inside the project editor */}
+        {!showPreview && currentPage === 'editor' && (
           <div className="w-48 border-r border-[#262626] flex flex-col bg-[#0F0F0F]">
             <div className="p-4 border-b border-[#262626]">
               <p className="text-[9px] font-bold text-gray-500 leading-tight uppercase tracking-wider">
                 AI Coded Files & Folders
                 <br />
-                <span className="text-blue-500/50 italic lowercase font-normal">click to edit manually</span>
+                <span className="text-neutral-500 italic lowercase font-normal">click to edit manually</span>
               </p>
             </div>
             <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
@@ -2011,25 +2012,23 @@ export default function App() {
                     }}
                     className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-3 transition-all group ${
                       activeFileIndex === idx && currentPage === 'editor'
-                        ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20' 
+                        ? 'bg-white text-black font-semibold border border-neutral-300' 
                         : 'hover:bg-[#1A1A1A] text-gray-500 hover:text-gray-300'
-                    } ${Object.values(codingFiles).includes(file.name) ? 'ring-1 ring-blue-500/50 animate-pulse' : ''}`}
+                    } ${Object.values(codingFiles).includes(file.name) ? 'ring-1 ring-white/50 animate-pulse' : ''}`}
                   >
-                    <FileCode className={`w-3.5 h-3.5 ${activeFileIndex === idx && currentPage === 'editor' ? 'text-blue-400' : 'text-gray-600 group-hover:text-gray-400'}`} />
+                    <FileCode className={`w-3.5 h-3.5 ${activeFileIndex === idx && currentPage === 'editor' ? 'text-black' : 'text-gray-600 group-hover:text-gray-400'}`} />
                     <span className="truncate flex-1">{file.name}</span>
                     {Object.values(codingFiles).includes(file.name) && (
                       <div className="flex gap-0.5">
-                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1 h-1 bg-blue-500 rounded-full" />
-                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1 h-1 bg-blue-500 rounded-full" />
-                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1 h-1 bg-blue-500 rounded-full" />
+                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1 h-1 bg-white rounded-full" />
+                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1 h-1 bg-white rounded-full" />
+                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1 h-1 bg-white rounded-full" />
                       </div>
                     )}
                   </button>
                 );
               })}
             </div>
-            
-
           </div>
         )}
 
@@ -2156,17 +2155,17 @@ export default function App() {
                   </div>
                   <div className="h-4 w-[1px] bg-[#262626] mx-1" />
                   <span className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5 mr-1">
-                    <Eye className="w-3.5 h-3.5 text-blue-400" />
+                    <Eye className="w-3.5 h-3.5 text-neutral-300" />
                     <span>Preview</span>
                   </span>
 
                   {/* Paintbrush Inspector Button */}
                   <button 
                     onClick={() => setIsInspectorActive(!isInspectorActive)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${isInspectorActive ? 'bg-indigo-600 text-white border-indigo-400 shadow-lg shadow-indigo-600/30' : 'bg-[#141414] text-gray-400 hover:text-white border-[#262626] hover:bg-[#222]'}`}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${isInspectorActive ? 'bg-white text-black border-white shadow-lg' : 'bg-[#141414] text-gray-400 hover:text-white border-[#262626] hover:bg-[#222]'}`}
                     title="Paintbrush Tool: Click to tap and apprehend any element on the website"
                   >
-                    <Paintbrush className={`w-3.5 h-3.5 ${isInspectorActive ? 'animate-bounce' : 'text-indigo-400'}`} />
+                    <Paintbrush className={`w-3.5 h-3.5 ${isInspectorActive ? 'animate-bounce text-black' : 'text-neutral-300'}`} />
                     <span className="hidden sm:inline">Inspector</span>
                   </button>
                 </div>
@@ -2181,10 +2180,10 @@ export default function App() {
                       className="flex items-center gap-2 px-3 py-1.5 bg-[#141414] hover:bg-[#1E1E1E] border border-[#262626] hover:border-[#3a3a3a] rounded-xl text-xs font-bold text-white transition-all cursor-pointer shadow-sm"
                       title="Device preview mode"
                     >
-                      {previewDevice === 'pc' && <Monitor className="w-3.5 h-3.5 text-indigo-400" />}
-                      {previewDevice === 'tablet' && <Tablet className="w-3.5 h-3.5 text-indigo-400" />}
-                      {previewDevice === 'phone' && <Smartphone className="w-3.5 h-3.5 text-indigo-400" />}
-                      {previewDevice === 'tv' && <Tv className="w-3.5 h-3.5 text-indigo-400" />}
+                      {previewDevice === 'pc' && <Monitor className="w-3.5 h-3.5 text-neutral-300" />}
+                      {previewDevice === 'tablet' && <Tablet className="w-3.5 h-3.5 text-neutral-300" />}
+                      {previewDevice === 'phone' && <Smartphone className="w-3.5 h-3.5 text-neutral-300" />}
+                      {previewDevice === 'tv' && <Tv className="w-3.5 h-3.5 text-neutral-300" />}
                       <span>Device ({previewDevice === 'pc' ? 'PC' : previewDevice === 'tablet' ? 'Tablet' : previewDevice === 'phone' ? 'Phone' : 'TV'})</span>
                       <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform duration-200 ${showDeviceMenu ? 'rotate-180' : ''}`} />
                     </button>
@@ -2199,7 +2198,7 @@ export default function App() {
                             setPreviewDevice('pc');
                             setShowDeviceMenu(false);
                           }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'pc' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
+                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'pc' ? 'bg-white text-black' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
                         >
                           <Monitor className="w-3.5 h-3.5" />
                           <span>PC / Desktop</span>
@@ -2209,7 +2208,7 @@ export default function App() {
                             setPreviewDevice('tablet');
                             setShowDeviceMenu(false);
                           }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'tablet' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
+                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'tablet' ? 'bg-white text-black' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
                         >
                           <Tablet className="w-3.5 h-3.5" />
                           <span>Tablet (768px)</span>
@@ -2219,7 +2218,7 @@ export default function App() {
                             setPreviewDevice('phone');
                             setShowDeviceMenu(false);
                           }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'phone' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
+                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'phone' ? 'bg-white text-black' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
                         >
                           <Smartphone className="w-3.5 h-3.5" />
                           <span>Phone (375px)</span>
@@ -2229,7 +2228,7 @@ export default function App() {
                             setPreviewDevice('tv');
                             setShowDeviceMenu(false);
                           }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'tv' ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
+                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left ${previewDevice === 'tv' ? 'bg-white text-black' : 'text-gray-300 hover:bg-[#222] hover:text-white'}`}
                         >
                           <Tv className="w-3.5 h-3.5" />
                           <span>TV (Widescreen)</span>
@@ -2241,7 +2240,7 @@ export default function App() {
                   {/* Rotate Orientation Button */}
                   <button 
                     onClick={() => setIsRotated(!isRotated)}
-                    className={`p-1.5 border rounded-xl transition-all cursor-pointer ${isRotated ? 'bg-indigo-600 text-white border-indigo-400 shadow' : 'bg-[#141414] border-[#262626] text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                    className={`p-1.5 border rounded-xl transition-all cursor-pointer ${isRotated ? 'bg-white text-black border-white shadow' : 'bg-[#141414] border-[#262626] text-gray-400 hover:text-white hover:bg-[#222]'}`}
                     title={`Rotate Orientation (${isRotated ? 'Landscape' : 'Portrait'})`}
                   >
                     <RotateCw className={`w-3.5 h-3.5 transition-transform duration-300 ${isRotated ? 'rotate-90' : ''}`} />
@@ -2429,29 +2428,29 @@ export default function App() {
         {/* Right Sidebar: Chat */}
         {(!showPreview || !isPreviewExpanded) && currentPage === 'editor' && (
           <div className="w-80 border-l border-[#262626] flex flex-col bg-[#0F0F0F] relative">
-          <div className="p-4 border-b border-[#262626] flex items-center justify-between col-span-1">
-            <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+          <div className="p-3 border-b border-[#262626] flex items-center justify-between col-span-1 bg-[#0F0F0F]">
+            <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
               {aiSettings.assistantName}
             </span>
             <div className="flex items-center gap-1.5">
               <button 
                 onClick={() => setAiMode('fast')}
-                className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-all ${aiMode === 'fast' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-all ${aiMode === 'fast' ? 'bg-white text-black' : 'text-neutral-500 hover:text-white'}`}
               >
                 Fast
               </button>
               <button 
                 onClick={() => setAiMode('complex')}
-                className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-all ${aiMode === 'complex' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-white'}`}
+                className={`px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-all ${aiMode === 'complex' ? 'bg-white text-black' : 'text-neutral-500 hover:text-white'}`}
               >
                 Complex
               </button>
               <button 
                 onClick={() => setShowAiSettings(!showAiSettings)}
-                className={`p-1 rounded transition-all ${showAiSettings ? 'text-indigo-400 bg-[#1A1A1A] border border-indigo-500/20' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+                className={`p-1 rounded transition-all ${showAiSettings ? 'text-white bg-neutral-800 border border-neutral-700' : 'text-neutral-400 hover:text-white hover:bg-neutral-800'}`}
                 title="Personalize AI Coder"
               >
-                <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                <Sparkles className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -2466,8 +2465,8 @@ export default function App() {
                 className="border-b border-[#262626] bg-[#0A0A0A] p-4 space-y-3 text-xs overflow-hidden"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400 flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-indigo-400" /> Persona Customizer
+                  <span className="text-[10px] font-black uppercase tracking-wider text-white flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-white" /> Persona Customizer
                   </span>
                   <button 
                     onClick={() => {
@@ -2504,7 +2503,7 @@ export default function App() {
                         setAiSettings(prev => ({ ...prev, assistantName: val }));
                         localStorage.setItem('gear_ai_name', val);
                       }}
-                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-neutral-500"
                       placeholder="e.g. Gear AI"
                     />
                   </div>
@@ -2519,7 +2518,7 @@ export default function App() {
                         setAiSettings(prev => ({ ...prev, userName: val }));
                         localStorage.setItem('gear_ai_user_name', val);
                       }}
-                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-neutral-500"
                       placeholder="e.g. Doris"
                     />
                   </div>
@@ -2534,7 +2533,7 @@ export default function App() {
                       setAiSettings(prev => ({ ...prev, tone: val }));
                       localStorage.setItem('gear_ai_tone', val);
                     }}
-                    className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                    className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-neutral-500 cursor-pointer"
                   >
                     <option value="Precise & Technical">Precise & Technical (Expert)</option>
                     <option value="Friendly & Encouraging">Friendly & Encouraging</option>
@@ -2554,7 +2553,7 @@ export default function App() {
                         setAiSettings(prev => ({ ...prev, length: val }));
                         localStorage.setItem('gear_ai_length', val);
                       }}
-                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-neutral-500 cursor-pointer"
                     >
                       <option value="Concise & Direct">Concise</option>
                       <option value="Detailed & Explanatory">Detailed</option>
@@ -2571,7 +2570,7 @@ export default function App() {
                         setAiSettings(prev => ({ ...prev, emojiLevel: val }));
                         localStorage.setItem('gear_ai_emoji', val);
                       }}
-                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-neutral-500 cursor-pointer"
                     >
                       <option value="Standard">Standard</option>
                       <option value="✨ Enthusiastic">✨ Enthusiastic</option>
@@ -2589,7 +2588,7 @@ export default function App() {
                       setAiSettings(prev => ({ ...prev, customRules: val }));
                       localStorage.setItem('gear_ai_rules', val);
                     }}
-                    className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-indigo-500 h-12 max-h-24 resize-y custom-scrollbar"
+                    className="w-full bg-[#111] border border-[#262626] rounded-md px-2 py-1 text-[11px] text-white focus:outline-none focus:border-neutral-500 h-12 max-h-24 resize-y custom-scrollbar"
                     placeholder="e.g., Always use Tailwind, write CSS in German tags, etc."
                   />
                 </div>
@@ -2597,137 +2596,37 @@ export default function App() {
             )}
           </AnimatePresence>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
             {messages.map((message) => {
               const activeCodingFile = codingFiles[message.id];
-              let thoughtText = '';
-              let mainText = message.text;
-
-              if (message.role === 'ai') {
-                const thoughtMatch = message.text.match(/<thought>([\s\S]*?)(?:<\/thought>|$)/i);
-                if (thoughtMatch) {
-                  thoughtText = thoughtMatch[1].trim();
-                  mainText = message.text.replace(/<thought>[\s\S]*?(?:<\/thought>|$)/i, '').trim();
-                }
-              }
-
               return (
-                <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[92%] p-3 rounded-2xl text-xs ${
-                    message.role === 'user' 
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' 
-                      : message.isError 
-                        ? 'error-message' 
-                        : 'bg-[#18181F] text-gray-300 border border-[#2D2D3D]'
-                  }`}>
-                    {message.role === 'ai' ? (
-                      <div className="space-y-3">
-                        {/* File Coding Tab Badge with Rolling Animation */}
-                        {activeCodingFile && (
-                          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#121826] border border-blue-500/40 rounded-xl shadow-lg">
-                            <motion.div
-                              animate={{ rotate: 360 }}
-                              transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-                              className="w-3.5 h-3.5 border-2 border-blue-400 border-t-transparent rounded-full"
-                            />
-                            <FileCode className="w-3.5 h-3.5 text-blue-400" />
-                            <span className="text-[11px] font-mono font-bold text-blue-300">
-                              Coding <span className="underline">{activeCodingFile}</span>...
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Google AI Studio Reasoning Thought Box */}
-                        {thoughtText && (
-                          <div className="bg-[#0F0F16] border border-[#252538] rounded-xl overflow-hidden shadow-2xl">
-                            <div className="px-3 py-1.5 bg-[#171724] border-b border-[#252538] flex items-center justify-between text-[10px] font-mono text-purple-300">
-                              <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider">
-                                <Brain className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
-                                <span>Reasoning Thought</span>
-                              </div>
-                              <span className="text-[9px] text-gray-500 font-sans">Google AI Studio Process</span>
-                            </div>
-                            <div className="p-3 text-[11px] font-mono text-gray-400 whitespace-pre-wrap leading-relaxed select-text">
-                              {thoughtText}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Main Markdown Response Body */}
-                        {mainText ? (
-                          <div className="markdown-body">
-                            <Markdown
-                              components={{
-                                code({ node, className, children, ...props }) {
-                                  const match = /language-(\w+)(?::(.+))?/.exec(className || '');
-                                  const fileName = match ? match[2] : null;
-                                  const isBlock = className?.includes('language-');
-
-                                  if (isBlock && fileName) {
-                                    return (
-                                      <div className="relative group/code">
-                                        <div className="absolute right-2 top-2 opacity-0 group-hover/code:opacity-100 transition-opacity z-10">
-                                          <button 
-                                            onClick={() => handleApplyCode(fileName, String(children))}
-                                            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[9px] font-bold uppercase text-white shadow-lg"
-                                          >
-                                            Apply to {fileName}
-                                          </button>
-                                        </div>
-                                        <pre className={className}>
-                                          <code>{children}</code>
-                                        </pre>
-                                      </div>
-                                    );
-                                  }
-                                  return <code className={className} {...props}>{children}</code>;
-                                }
-                              }}
-                            >
-                              {mainText}
-                            </Markdown>
-                            {message.status === 'generating' && (
-                              <motion.span 
-                                animate={{ opacity: [0, 1, 0] }}
-                                transition={{ repeat: Infinity, duration: 0.8 }}
-                                className="inline-block w-2 h-4 bg-blue-500 ml-1 font-mono align-middle"
-                              />
-                            )}
-                          </div>
-                        ) : message.status === 'generating' ? (
-                          <div className="flex items-center gap-2 text-gray-400 text-xs py-1">
-                            <motion.span 
-                              animate={{ opacity: [0, 1, 0] }}
-                              transition={{ repeat: Infinity, duration: 0.8 }}
-                              className="inline-block w-2 h-4 bg-blue-500 font-mono"
-                            />
-                            <span className="animate-pulse">Reasoning...</span>
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : message.text}
-                  </div>
-                </div>
+                <AiMessageItem
+                  key={message.id}
+                  message={message}
+                  activeCodingFile={activeCodingFile}
+                  onApplyCode={handleApplyCode}
+                />
               );
             })}
             <div ref={chatEndRef} />
           </div>
 
-          <div className="p-2.5 border-t border-[#262626] space-y-2">
+          {/* Compact Input Toolbar Section */}
+          <div className="p-2 border-t border-[#262626] bg-[#0C0C0C] space-y-1.5 shrink-0">
             {images.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 px-0.5">
+              <div className="flex flex-wrap gap-1 px-0.5">
                 {images.map((img, idx) => (
                   <div key={idx} className="relative group">
                     <img 
                       src={`data:${img.mimeType};base64,${img.data}`} 
                       alt="Upload" 
-                      className="w-10 h-10 rounded-lg object-cover border border-[#333]"
+                      className="w-8 h-8 rounded-lg object-cover border border-[#333]"
                     />
                     <button 
                       onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
-                      className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                     >
-                      <X className="w-2.5 h-2.5" />
+                      <X className="w-2 h-2" />
                     </button>
                   </div>
                 ))}
@@ -2752,46 +2651,46 @@ export default function App() {
                   }
                 }}
                 placeholder="Imagine..."
-                className="w-full bg-[#1A1A1A] border border-[#333] rounded-xl px-3 py-2 pr-10 text-xs focus:outline-none focus:border-blue-500 transition-all resize-none min-h-[42px] max-h-[110px] custom-scrollbar shadow-inner"
+                className="w-full bg-[#161616] border border-[#2A2A2A] rounded-xl px-2.5 py-1.5 pr-8 text-xs text-white focus:outline-none focus:border-neutral-500 transition-all resize-none min-h-[38px] max-h-[85px] custom-scrollbar shadow-inner"
               />
               <button 
                 onClick={() => handleSendMessage()}
                 disabled={isGenerating || !inputValue.trim()}
-                className="absolute right-1.5 bottom-1.5 w-7 h-7 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-full transition-all shadow-md shadow-blue-600/30 flex items-center justify-center active:scale-95 cursor-pointer"
+                className="absolute right-1.5 bottom-1.5 w-6 h-6 bg-white hover:bg-neutral-200 disabled:opacity-30 text-black rounded-full transition-all shadow-md flex items-center justify-center active:scale-95 cursor-pointer"
                 title="Send Prompt (->)"
               >
-                <ArrowRight className="w-3.5 h-3.5" />
+                <ArrowRight className="w-3 h-3 text-black" />
               </button>
             </div>
 
-            {/* Sketch Toolbar: Upload file (+), Mic (🎙), Strict Commands (!), Model selection (IONIC GEAR ⚙) */}
+            {/* Ultra-compact Sketch Toolbar */}
             <div className="flex items-center justify-between px-0.5 pt-0.5">
               <div className="flex items-center gap-1">
                 <button 
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-6 h-6 rounded-full bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] text-gray-400 hover:text-white flex items-center justify-center transition-all cursor-pointer" 
+                  className="w-5 h-5 rounded-full bg-[#161616] hover:bg-[#262626] border border-[#333] text-gray-400 hover:text-white flex items-center justify-center transition-all cursor-pointer" 
                   title="Upload file (+)"
                 >
-                  <Plus className="w-3 h-3" />
+                  <Plus className="w-2.5 h-2.5" />
                 </button>
 
                 <button 
-                  className="w-6 h-6 rounded-full bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] text-gray-400 hover:text-white flex items-center justify-center transition-all cursor-pointer" 
+                  className="w-5 h-5 rounded-full bg-[#161616] hover:bg-[#262626] border border-[#333] text-gray-400 hover:text-white flex items-center justify-center transition-all cursor-pointer" 
                   title="Mic (Voice Input)"
                 >
-                  <Mic className="w-3 h-3" />
+                  <Mic className="w-2.5 h-2.5" />
                 </button>
 
                 <button 
                   onClick={() => setStrictCommands(!strictCommands)}
-                  className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider transition-all flex items-center gap-1 border cursor-pointer ${
+                  className={`px-1.5 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider transition-all flex items-center gap-1 border cursor-pointer ${
                     strictCommands 
-                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-sm' 
-                      : 'bg-[#1A1A1A] text-gray-400 hover:text-gray-200 border-[#333] hover:bg-[#262626]'
+                      ? 'bg-neutral-800 text-white border-neutral-600 shadow-sm' 
+                      : 'bg-[#161616] text-neutral-400 hover:text-white border-[#333] hover:bg-[#222]'
                   }`}
                   title="Toggle Strict Commands mode"
                 >
-                  <span className="font-mono font-black text-amber-400">!</span>
+                  <span className="font-mono font-black text-white">!</span>
                   <span>Strict Commands</span>
                 </button>
               </div>
@@ -2804,11 +2703,11 @@ export default function App() {
                     setActiveModel(nextModel);
                     localStorage.setItem('gear_active_model', nextModel);
                   }}
-                  className="px-2 py-0.5 bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] hover:border-[#444] rounded-full text-[9px] font-black uppercase tracking-wider text-blue-400 hover:text-blue-300 transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                  className="px-2 py-0.5 bg-[#161616] hover:bg-[#222] border border-[#333] hover:border-[#555] rounded-full text-[8px] font-black uppercase tracking-wider text-white transition-all flex items-center gap-1 shadow-sm cursor-pointer"
                   title="Model Selection"
                 >
                   <span>{activeModel === 'ionic' ? 'IONIC GEAR' : 'ICONIC GEAR'}</span>
-                  <Settings className="w-2.5 h-2.5 text-gray-400" />
+                  <Settings className="w-2 h-2 text-neutral-400" />
                 </button>
               </div>
             </div>
@@ -2840,7 +2739,7 @@ export default function App() {
           >
             <div className="p-6 border-b border-[#262626] flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <ShoppingCart className="w-5 h-5 text-indigo-500" />
+                <ShoppingCart className="w-5 h-5 text-white" />
                 <h3 className="text-lg font-bold text-white">Your Cart</h3>
               </div>
               <button 
@@ -2860,7 +2759,7 @@ export default function App() {
                   <p className="text-sm text-gray-400">Your cart is empty</p>
                   <button 
                     onClick={() => setShowCart(false)}
-                    className="mt-4 text-xs font-bold text-indigo-500 hover:text-indigo-400 uppercase tracking-widest"
+                    className="mt-4 text-xs font-bold text-white hover:underline uppercase tracking-widest"
                   >
                     Continue Shopping
                   </button>
@@ -2876,7 +2775,7 @@ export default function App() {
                       <p className="text-sm font-bold text-white">${item.price}</p>
                       <button 
                         onClick={() => handleRemoveFromCart(item.domain)}
-                        className="p-2 text-gray-600 hover:text-red-500 transition-colors"
+                        className="p-2 text-gray-600 hover:text-white transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -2897,9 +2796,9 @@ export default function App() {
                 <button 
                   onClick={handleCheckout}
                   disabled={isBuyingDomain}
-                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-xl"
+                  className="w-full py-4 bg-white hover:bg-neutral-200 disabled:opacity-50 text-black font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-xl"
                 >
-                  {isBuyingDomain ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Checkout & Connect'}
+                  {isBuyingDomain ? <Loader2 className="w-5 h-5 animate-spin text-black" /> : 'Checkout & Connect'}
                 </button>
               </div>
             )}
@@ -2925,8 +2824,8 @@ export default function App() {
             className="relative w-full max-w-md bg-[#111] border border-[#262626] rounded-2xl p-8 shadow-2xl overflow-hidden"
           >
             <div className="flex flex-col items-center text-center">
-              <div className="w-16 h-16 bg-blue-600/20 rounded-2xl flex items-center justify-center mb-6">
-                <Box className="w-8 h-8 text-blue-500" />
+              <div className="w-16 h-16 bg-neutral-900 border border-neutral-700 rounded-2xl flex items-center justify-center mb-6">
+                <Box className="w-8 h-8 text-white" />
               </div>
               <h3 className="text-2xl font-black text-white mb-2 tracking-tighter">Create New Space</h3>
               <p className="text-sm text-gray-400 mb-8">
@@ -2942,7 +2841,7 @@ export default function App() {
                     type="text"
                     value={newSpaceName}
                     onChange={(e) => setNewSpaceName(e.target.value)}
-                    className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl py-4 px-5 text-sm text-white focus:outline-none focus:border-blue-500 transition-all"
+                    className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl py-4 px-5 text-sm text-white focus:outline-none focus:border-neutral-500 transition-all"
                     placeholder="e.g. My Awesome App"
                     autoFocus
                   />
@@ -2954,7 +2853,7 @@ export default function App() {
                   <textarea 
                     value={newSpaceDescription}
                     onChange={(e) => setNewSpaceDescription(e.target.value)}
-                    className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl py-4 px-5 text-sm text-white focus:outline-none focus:border-blue-500 transition-all resize-none h-24"
+                    className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl py-4 px-5 text-sm text-white focus:outline-none focus:border-neutral-500 transition-all resize-none h-24"
                     placeholder="What are you building?"
                   />
                 </div>
@@ -2970,7 +2869,7 @@ export default function App() {
                 <button 
                   onClick={handleCreateSpace}
                   disabled={!newSpaceName.trim()}
-                  className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold rounded-xl transition-all shadow-xl shadow-blue-600/20"
+                  className="flex-1 py-4 bg-white hover:bg-neutral-200 disabled:opacity-50 text-black font-bold rounded-xl transition-all shadow-xl"
                 >
                   Create Space
                 </button>
@@ -3004,8 +2903,8 @@ export default function App() {
             {/* Drawer Title & Close Button */}
             <div className="flex items-center justify-between mb-8 pb-4 border-b border-[#262626]">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 bg-blue-600 rounded flex items-center justify-center">
-                  <Code className="w-4 h-4 text-white" />
+                <div className="w-6 h-6 bg-white rounded flex items-center justify-center">
+                  <Code className="w-4 h-4 text-black" />
                 </div>
                 <span className="font-black text-xs tracking-tighter uppercase text-white">Gear Studio Map</span>
               </div>
@@ -3017,20 +2916,20 @@ export default function App() {
               </button>
             </div>
 
-            {/* Navigation Options - Hand Drawn Sketch Menu List */}
+            {/* Navigation Options */}
             <div className="flex-1 overflow-y-auto space-y-2.5 custom-scrollbar pr-1 pt-2">
               <button 
                 onClick={() => {
                   setCurrentPage('overview');
                   setIsLeftMenuOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'overview' ? 'bg-[#1E1E1E] text-white border-indigo-500 shadow-lg shadow-indigo-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'overview' ? 'bg-white text-black border-white shadow-lg' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
               >
                 <div className="flex items-center gap-3">
-                  <Zap className="w-4 h-4 text-indigo-400" />
+                  <Zap className={`w-4 h-4 ${currentPage === 'overview' ? 'text-black' : 'text-neutral-300'}`} />
                   <span>BUILD FASTER</span>
                 </div>
-                <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-md font-bold">PRO</span>
+                <span className={`text-[9px] px-2 py-0.5 rounded-md font-bold ${currentPage === 'overview' ? 'bg-black text-white' : 'bg-neutral-800 text-neutral-300'}`}>PRO</span>
               </button>
 
               <button 
@@ -3038,13 +2937,13 @@ export default function App() {
                   setCurrentPage('projects');
                   setIsLeftMenuOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'projects' || currentPage === 'spaces' ? 'bg-[#1E1E1E] text-white border-indigo-500 shadow-lg shadow-indigo-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'projects' || currentPage === 'spaces' ? 'bg-white text-black border-white shadow-lg' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
               >
                 <div className="flex items-center gap-3">
-                  <Box className="w-4 h-4 text-indigo-400" />
+                  <Box className={`w-4 h-4 ${currentPage === 'projects' || currentPage === 'spaces' ? 'text-black' : 'text-neutral-300'}`} />
                   <span>SPACES</span>
                 </div>
-                <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-md font-bold">{spaces.length}</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${currentPage === 'projects' || currentPage === 'spaces' ? 'bg-black text-white' : 'bg-neutral-800 text-neutral-300'}`}>{spaces.length}</span>
               </button>
 
               <button 
@@ -3052,10 +2951,10 @@ export default function App() {
                   setCurrentPage('market');
                   setIsLeftMenuOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'market' ? 'bg-[#1E1E1E] text-white border-emerald-500 shadow-lg shadow-emerald-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'market' ? 'bg-white text-black border-white shadow-lg' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
               >
                 <div className="flex items-center gap-3">
-                  <ShoppingCart className="w-4 h-4 text-emerald-400" />
+                  <ShoppingCart className={`w-4 h-4 ${currentPage === 'market' ? 'text-black' : 'text-neutral-300'}`} />
                   <span>MARKET</span>
                 </div>
               </button>
@@ -3065,10 +2964,10 @@ export default function App() {
                   setCurrentPage('teams');
                   setIsLeftMenuOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'teams' ? 'bg-[#1E1E1E] text-white border-purple-500 shadow-lg shadow-purple-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'teams' ? 'bg-white text-black border-white shadow-lg' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
               >
                 <div className="flex items-center gap-3">
-                  <Users className="w-4 h-4 text-purple-400" />
+                  <Users className={`w-4 h-4 ${currentPage === 'teams' ? 'text-black' : 'text-neutral-300'}`} />
                   <span>TEAMS</span>
                 </div>
               </button>
@@ -3078,10 +2977,10 @@ export default function App() {
                   setCurrentPage('pricing');
                   setIsLeftMenuOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'pricing' ? 'bg-[#1E1E1E] text-white border-amber-500 shadow-lg shadow-amber-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'pricing' ? 'bg-white text-black border-white shadow-lg' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
               >
                 <div className="flex items-center gap-3">
-                  <Sliders className="w-4 h-4 text-amber-400" />
+                  <Sliders className={`w-4 h-4 ${currentPage === 'pricing' ? 'text-black' : 'text-neutral-300'}`} />
                   <span>PRICING</span>
                 </div>
               </button>
@@ -3091,10 +2990,10 @@ export default function App() {
                   setCurrentPage('account');
                   setIsLeftMenuOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'account' ? 'bg-[#1E1E1E] text-white border-cyan-500 shadow-lg shadow-cyan-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'account' ? 'bg-white text-black border-white shadow-lg' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
               >
                 <div className="flex items-center gap-3">
-                  <User className="w-4 h-4 text-cyan-400" />
+                  <User className={`w-4 h-4 ${currentPage === 'account' ? 'text-black' : 'text-neutral-300'}`} />
                   <span>ACCOUNT</span>
                 </div>
               </button>
@@ -3104,10 +3003,10 @@ export default function App() {
                   setCurrentPage('integrations');
                   setIsLeftMenuOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'integrations' ? 'bg-[#1E1E1E] text-white border-teal-500 shadow-lg shadow-teal-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'integrations' ? 'bg-white text-black border-white shadow-lg' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
               >
                 <div className="flex items-center gap-3">
-                  <PluginIcon className="w-4 h-4 text-teal-400" />
+                  <PluginIcon className={`w-4 h-4 ${currentPage === 'integrations' ? 'text-black' : 'text-neutral-300'}`} />
                   <span>CONNECTION</span>
                 </div>
               </button>
@@ -3117,10 +3016,10 @@ export default function App() {
                   setCurrentPage('settings');
                   setIsLeftMenuOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'settings' ? 'bg-[#1E1E1E] text-white border-gray-400 shadow-lg shadow-gray-400/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'settings' ? 'bg-white text-black border-white shadow-lg' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
               >
                 <div className="flex items-center gap-3">
-                  <Settings className="w-4 h-4 text-gray-400" />
+                  <Settings className={`w-4 h-4 ${currentPage === 'settings' ? 'text-black' : 'text-neutral-300'}`} />
                   <span>SETTINGS</span>
                 </div>
               </button>
@@ -3134,7 +3033,7 @@ export default function App() {
                   await supabase.auth.signOut();
                   setCurrentPage('landing');
                 }}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-red-500 hover:bg-red-500/10 transition-colors"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-red-400 hover:bg-red-500/10 transition-colors"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span>Sign Out</span>
@@ -3162,8 +3061,8 @@ export default function App() {
             className="relative w-full max-w-sm bg-[#111] border border-[#262626] rounded-2xl p-6 shadow-2xl overflow-hidden"
           >
             <div className="flex flex-col items-center text-center">
-              <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center mb-4">
-                <Globe className="w-6 h-6 text-blue-500" />
+              <div className="w-12 h-12 bg-neutral-900 border border-neutral-700 rounded-xl flex items-center justify-center mb-4">
+                <Globe className="w-6 h-6 text-white" />
               </div>
               <h3 className="text-lg font-bold text-white mb-2">Deploy Space</h3>
               <p className="text-sm text-gray-400 mb-6">
@@ -3179,7 +3078,7 @@ export default function App() {
                     type="text"
                     value={deploymentName}
                     onChange={(e) => setDeploymentName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                    className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl py-3 px-4 text-sm text-white focus:outline-none focus:border-blue-500 transition-all pr-24"
+                    className="w-full bg-[#1A1A1A] border border-[#262626] rounded-xl py-3 px-4 text-sm text-white focus:outline-none focus:border-neutral-500 transition-all pr-24"
                     placeholder="space-name"
                   />
                   <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 font-medium">
@@ -3195,9 +3094,9 @@ export default function App() {
                 <button 
                   onClick={handleDeploy}
                   disabled={isDeploying || files.length === 0}
-                  className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+                  className="w-full py-3 bg-white hover:bg-neutral-200 disabled:opacity-50 text-black font-bold rounded-xl transition-all flex items-center justify-center gap-2"
                 >
-                  {isDeploying ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Confirm Deployment'}
+                  {isDeploying ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : 'Confirm Deployment'}
                 </button>
                 <button 
                   onClick={() => setShowDeployModal(false)}
@@ -3231,7 +3130,7 @@ export default function App() {
           >
             <div className="flex items-center justify-between pb-4 border-b border-[#222]">
               <div className="flex items-center gap-2">
-                <HelpCircle className="w-5 h-5 text-blue-500" />
+                <HelpCircle className="w-5 h-5 text-white" />
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider">Help & Keyboard Shortcuts</h3>
               </div>
               <button onClick={() => setShowHelpModal(false)} className="text-gray-400 hover:text-white p-1 rounded-lg">
@@ -3241,23 +3140,23 @@ export default function App() {
             <div className="py-4 space-y-3 text-xs text-gray-300">
               <div className="flex items-center justify-between p-2 bg-[#1A1A1A] rounded-lg border border-[#262626]">
                 <span className="font-medium text-gray-400">&gt;_ Terminal / Logs</span>
-                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-blue-400">Toggle Icon</kbd>
+                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-white">Toggle Icon</kbd>
               </div>
               <div className="flex items-center justify-between p-2 bg-[#1A1A1A] rounded-lg border border-[#262626]">
                 <span className="font-medium text-gray-400">&lt;/&gt; Code View</span>
-                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-blue-400">Editor Mode</kbd>
+                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-white">Editor Mode</kbd>
               </div>
               <div className="flex items-center justify-between p-2 bg-[#1A1A1A] rounded-lg border border-[#262626]">
                 <span className="font-medium text-gray-400">▶ Live Preview</span>
-                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-blue-400">Preview Mode</kbd>
+                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-white">Preview Mode</kbd>
               </div>
               <div className="flex items-center justify-between p-2 bg-[#1A1A1A] rounded-lg border border-[#262626]">
                 <span className="font-medium text-gray-400">! Strict Commands</span>
-                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-amber-400">Strict AI Enforcement</kbd>
+                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-white">Strict AI Enforcement</kbd>
               </div>
               <div className="flex items-center justify-between p-2 bg-[#1A1A1A] rounded-lg border border-[#262626]">
                 <span className="font-medium text-gray-400">Secrets / .env</span>
-                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-yellow-400">Key Icon</kbd>
+                <kbd className="px-2 py-0.5 bg-[#262626] rounded text-[10px] font-mono text-white">Key Icon</kbd>
               </div>
             </div>
             <button 
