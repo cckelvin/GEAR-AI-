@@ -182,10 +182,16 @@ Core Directives:
    - ALWAYS ask the user for confirmation before implementing any integration (Plug-in or Built-in).
 11. NO REACT: Do not generate App.tsx or use React syntax. Use standard DOM manipulation (document.getElementById, etc.) for interactivity.
 12. Debugging & Logs: You have access to the preview window's console logs. If the user provides logs, analyze them to identify errors (e.g., syntax errors, failed network requests, or logic bugs) and provide fixes directly in the code blocks.
-13. File Analysis: When a user uploads a file, analyze its content thoroughly. If it's a code file, use it as a reference or integrate it into the project. If it's a text file, use the information within to guide your design or logic.
+13. Gemini Multimodal File & Image Analysis:
+   - When the user uploads an image, UI mockup, screenshot, wireframe, or diagram:
+     • Deep Visual Inspection: Inspect layout grid, spatial padding, flex hierarchies, typography scale, exact hex colors, and micro-details.
+     • 1:1 Pixel-Accurate UI Translation: Faithfully convert visual designs from the image directly into standalone HTML and Tailwind CSS.
+     • OCR & Content Transcription: Accurately extract all visible text, headers, badges, form inputs, buttons, and icons (map to Lucide icons).
+     • Code-First Output: Immediately output the complete runnable code in labeled blocks (e.g., \`\`\`html:index.html\`\`\`, \`\`\`css:styles.css\`\`\`, \`\`\`javascript:main.js\`\`\`).
+   - When the user uploads text/code/spec files, analyze their architecture and integrate them seamlessly into the active space.
 
 Interaction Style:
-- ALWAYS include the filename in the code block label (e.g., \`\`\`html:index.html\`).`;
+- ALWAYS include the filename in the code block label (e.g., \`\`\`html:index.html\`\`\`).`;
 }
 
 const SYSTEM_INSTRUCTION = getSystemInstruction();
@@ -193,7 +199,7 @@ const SYSTEM_INSTRUCTION = getSystemInstruction();
 export async function generateCodeResponseStream(
   prompt: string, 
   history: { role: "user" | "model"; parts: { text: string }[] }[],
-  images?: { data: string, mimeType: string }[],
+  images?: { data: string, mimeType: string, name?: string }[],
   files?: { name: string, content: string }[],
   settings?: {
     assistantName?: string;
@@ -210,7 +216,11 @@ export async function generateCodeResponseStream(
   let contextPrompt = prompt;
   if (files && files.length > 0) {
     const filesContext = files.map(f => `File: ${f.name}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
-    contextPrompt = `Current Space Files:\n${filesContext}\n\nUser Request: ${prompt}`;
+    contextPrompt = `Current Space Files:\n${filesContext}\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+  }
+
+  if (images && images.length > 0) {
+    contextPrompt = `[GEMINI MULTIMODAL FILE & VISION ANALYSIS]: ${images.length} file/image attachment(s) provided. Perform deep visual and structural analysis (UI layout, typography, colors, component hierarchy, text OCR, interactions) and generate/update the workspace code accordingly.\n\n` + contextPrompt;
   }
 
   const userParts: any[] = [{ text: contextPrompt }];
@@ -241,7 +251,7 @@ export async function generateCodeResponseStream(
 
 export async function generateCodeResponse(
   prompt: string, 
-  images?: { data: string, mimeType: string }[],
+  images?: { data: string, mimeType: string, name?: string }[],
   files?: { name: string, content: string }[],
   history: { role: "user" | "model"; parts: { text: string }[] }[] = [],
   settings?: {
@@ -259,7 +269,11 @@ export async function generateCodeResponse(
   let contextPrompt = prompt;
   if (files && files.length > 0) {
     const filesContext = files.map(f => `File: ${f.name}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
-    contextPrompt = `Current Space Files:\n${filesContext}\n\nUser Request: ${prompt}`;
+    contextPrompt = `Current Space Files:\n${filesContext}\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+  }
+
+  if (images && images.length > 0) {
+    contextPrompt = `[GEMINI MULTIMODAL FILE & VISION ANALYSIS]: ${images.length} file/image attachment(s) provided. Perform deep visual and structural analysis (UI layout, typography, colors, component hierarchy, text OCR, interactions) and generate/update the workspace code accordingly.\n\n` + contextPrompt;
   }
 
   const userParts: any[] = [{ text: contextPrompt }];

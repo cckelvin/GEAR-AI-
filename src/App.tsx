@@ -78,7 +78,10 @@ import {
   Monitor,
   Tv,
   RotateCw,
-  ChevronDown
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  GitBranch
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
@@ -168,6 +171,25 @@ export default function App() {
   const [strictCommands, setStrictCommands] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showTeamPushNotice, setShowTeamPushNotice] = useState(false);
+  const [showVersionsModal, setShowVersionsModal] = useState(false);
+  const [spaceVersions, setSpaceVersions] = useState<Array<{
+    id: string;
+    versionNumber: number;
+    label: string;
+    timestamp: string;
+    filesCount: number;
+    author: string;
+    filesSnapshot?: FileData[];
+  }>>([
+    { id: 'v31', versionNumber: 31, label: 'Current Working Copy (Live)', timestamp: 'Just now', filesCount: 3, author: 'You' },
+    { id: 'v30', versionNumber: 30, label: 'Exemplar Benchmark & Chat Plan', timestamp: '12 mins ago', filesCount: 3, author: 'Gear AI' },
+    { id: 'v29', versionNumber: 29, label: 'Navigation & Component Architecture', timestamp: '35 mins ago', filesCount: 3, author: 'Gear AI' },
+    { id: 'v28', versionNumber: 28, label: 'Initial Project Scaffold', timestamp: '1 hour ago', filesCount: 2, author: 'System' },
+  ]);
+  const [newSnapshotLabel, setNewSnapshotLabel] = useState('');
+  const [teamPushCommitMsg, setTeamPushCommitMsg] = useState('Updated workspace code and architecture');
+  const [isPushingToTeam, setIsPushingToTeam] = useState(false);
+  const [teamPushSuccess, setTeamPushSuccess] = useState(false);
   const [showAiSettings, setShowAiSettings] = useState(false);
 
   // Auto-sync session username to gear_ai_user_name
@@ -306,7 +328,7 @@ export default function App() {
   const [domainResult, setDomainResult] = useState<any>(null);
   const [cart, setCart] = useState<any[]>([]);
   const [showCart, setShowCart] = useState(false);
-  const [images, setImages] = useState<{ data: string; mimeType: string }[]>([]);
+  const [images, setImages] = useState<{ data: string; mimeType: string; name?: string }[]>([]);
   const [logs, setLogs] = useState<{ type: 'log' | 'error' | 'warn'; message: string; timestamp: string }[]>([]);
   const [showLogs, setShowLogs] = useState(false);
 
@@ -675,66 +697,34 @@ export default function App() {
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFiles = e.target.files;
-    if (!uploadedFiles) return;
+    if (!uploadedFiles || uploadedFiles.length === 0) return;
 
     Array.from(uploadedFiles).forEach(file => {
       const reader = new FileReader();
       if (file.type.startsWith('image/')) {
         reader.onloadend = () => {
-          const img = new Image();
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = 512;
-            canvas.height = 512;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return;
-
-            ctx.drawImage(img, 0, 0, 512, 512);
-            const imgData = ctx.getImageData(0, 0, 512, 512);
-            const data = imgData.data;
-
-            const quantizeColor = (r: number, g: number, b: number, a: number): string => {
-              if (a < 32) return '#transparent';
-              const qr = Math.min(255, Math.max(0, Math.round(r / 32) * 32));
-              const qg = Math.min(255, Math.max(0, Math.round(g / 32) * 32));
-              const qb = Math.min(255, Math.max(0, Math.round(b / 32) * 32));
-
-              const toHex = (val: number) => {
-                const hex = val.toString(16);
-                return hex.length === 1 ? '0' + hex : hex;
-              };
-              return '#' + toHex(qr) + toHex(qg) + toHex(qb);
-            };
-
-            let runs: string[] = [];
-            let startPixel = 1;
-            let currentHex = quantizeColor(data[0], data[1], data[2], data[3]);
-
-            const totalPixels = 512 * 512;
-            for (let i = 1; i < totalPixels; i++) {
-              const idx = i * 4;
-              const hex = quantizeColor(data[idx], data[idx+1], data[idx+2], data[idx+3]);
-              if (hex !== currentHex) {
-                runs.push(`${startPixel}-${i}|${currentHex}`);
-                startPixel = i + 1;
-                currentHex = hex;
-              }
+          const resultStr = reader.result as string;
+          // Extract base64 data for Gemini inlineData
+          const base64Data = resultStr.includes(',') ? resultStr.split(',')[1] : resultStr;
+          const mimeType = file.type || 'image/png';
+          
+          setImages(prev => [
+            ...prev,
+            {
+              data: base64Data,
+              mimeType,
+              name: file.name
             }
-            runs.push(`${startPixel}-${totalPixels}|${currentHex}`);
-            const rleOutput = `[${runs.join(',')}]`;
-
-            setInputValue(prev => {
-              const prefix = prev ? prev + '\n\n' : '';
-              return prefix + `[IMAGE_FILE: ${file.name} (RLE encoded 512x512 pixels to save token cost)]\nFormat is [start_pixel-end_pixel|#hex_color]:\n${rleOutput}\n`;
-            });
-          };
-          img.src = reader.result as string;
+          ]);
         };
         reader.readAsDataURL(file);
       } else {
         reader.onloadend = () => {
           const content = reader.result as string;
-          setInputValue(prev => prev + `\n\nUploaded file: ${file.name}\n\`\`\`\n${content}\n\`\`\``);
+          setInputValue(prev => {
+            const prefix = prev ? prev + '\n\n' : '';
+            return prefix + `[ATTACHED FILE: ${file.name}]\n\`\`\`\n${content}\n\`\`\``;
+          });
         };
         reader.readAsText(file);
       }
@@ -1249,8 +1239,9 @@ export default function App() {
   };
 
   const handleSendMessage = async (overrideInput?: string) => {
-    const inputToUse = overrideInput || inputValue;
-    if (!inputToUse.trim() && images.length === 0) return;
+    const currentImages = [...images];
+    const inputToUse = overrideInput || inputValue || (currentImages.length > 0 ? 'Analyze the attached image/file and build the complete application matching this design and layout.' : '');
+    if (!inputToUse.trim() && currentImages.length === 0) return;
 
     const userMessage: Message = {
       id: generateId(),
@@ -1278,7 +1269,7 @@ export default function App() {
         return acc;
       }, []);
       
-      const stream = await generateCodeResponseStream(currentInput, history, images, files, { ...aiSettings, activeModel });
+      const stream = await generateCodeResponseStream(currentInput, history, currentImages, files, { ...aiSettings, activeModel });
       let fullResponse = "";
       
       // Add initial AI message
@@ -1831,18 +1822,8 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Center: VERSION (31) badge */}
-                <div className="flex items-center gap-2">
-                  <div className="px-3 py-1 bg-[#141414] border border-[#2A2A2A] rounded-full flex items-center gap-2 shadow-inner">
-                    <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                    <span className="text-[11px] font-extrabold tracking-wider text-gray-300 font-mono">
-                      VERSION <span className="text-white">(31)</span>
-                    </span>
-                  </div>
-                </div>
-
-                {/* Right controls: Secrets, Plugins, Export, Help, PUSH TO TEAM */}
-                <div className="flex items-center gap-2">
+                {/* Right controls: Secrets, Plugins, Export, Help, Three Dot Menu (containing Versions & Push to Team) */}
+                <div className="flex items-center gap-2 relative">
                   <button 
                     onClick={() => {
                       setShowEnvPage(true);
@@ -1888,20 +1869,14 @@ export default function App() {
                     <HelpCircle className="w-4 h-4 text-gray-400 hover:text-white" />
                   </button>
 
+                  {/* Three Dot Options Button (contains Versions, Push to Team, Deploy, etc.) */}
                   <button 
-                    onClick={() => setShowTeamPushNotice(true)}
-                    className="px-3 py-1 bg-white hover:bg-neutral-200 text-black rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-lg active:scale-95 cursor-pointer"
-                    title="Push workspace changes to team"
-                  >
-                    <Users className="w-3.5 h-3.5 text-black" />
-                    <span>PUSH TO TEAM</span>
-                  </button>
-
-                  <button 
+                    id="three-dot-options-button"
                     onClick={() => setIsMenuOpen(!isMenuOpen)}
-                    className={`p-1.5 rounded-lg transition-colors ${isMenuOpen ? 'bg-[#262626] text-white' : 'text-gray-500 hover:text-white hover:bg-[#262626]'}`}
+                    className={`p-1.5 rounded-lg transition-colors cursor-pointer ${isMenuOpen ? 'bg-white text-black' : 'text-neutral-400 hover:text-white hover:bg-[#262626]'}`}
+                    title="Workspace Options (Versions, Push to Team, Deploy)"
                   >
-                    <Menu className="w-4 h-4" />
+                    <MoreVertical className="w-4 h-4" />
                   </button>
 
                   <AnimatePresence>
@@ -1912,40 +1887,103 @@ export default function App() {
                           onClick={() => setIsMenuOpen(false)} 
                         />
                         <motion.div
-                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          initial={{ opacity: 0, y: 8, scale: 0.96 }}
                           animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                          transition={{ duration: 0.2 }}
-                          className="absolute top-full right-0 mt-2 w-48 bg-[#0F0F0F] border border-[#262626] rounded-xl shadow-2xl z-40 overflow-hidden"
+                          exit={{ opacity: 0, y: 8, scale: 0.96 }}
+                          transition={{ duration: 0.15 }}
+                          className="absolute top-full right-0 mt-2 w-64 bg-[#0F0F0F] border border-[#262626] rounded-2xl shadow-2xl z-40 overflow-hidden"
                         >
-                          <div className="p-2 space-y-1">
+                          {/* Header / Current Space Status */}
+                          <div className="px-3.5 py-2.5 border-b border-[#222] bg-[#141414] flex items-center justify-between">
+                            <div className="truncate pr-2">
+                              <span className="text-[9px] uppercase tracking-wider text-neutral-500 font-bold block">Space Workspace</span>
+                              <span className="text-xs font-bold text-white truncate block">{currentSpace.name}</span>
+                            </div>
+                            <span className="px-2 py-0.5 bg-neutral-900 border border-neutral-700 text-neutral-200 font-mono text-[9px] font-bold rounded-full">
+                              v{spaceVersions[0]?.versionNumber || 31}
+                            </span>
+                          </div>
+
+                          {/* Primary Actions: Versions & Push to Team */}
+                          <div className="p-2 space-y-1.5 bg-[#0F0F0F]">
+                            {/* Versions option */}
+                            <button 
+                              id="menu-versions-button"
+                              onClick={() => {
+                                setIsMenuOpen(false);
+                                setShowVersionsModal(true);
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-800 text-white transition-all group cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-7 h-7 rounded-lg bg-black border border-neutral-700 flex items-center justify-center text-white">
+                                  <History className="w-3.5 h-3.5" />
+                                </div>
+                                <div className="text-left">
+                                  <span className="font-bold block text-[11px] leading-tight text-white">Versions</span>
+                                  <span className="text-[9px] text-neutral-400 font-mono leading-tight">
+                                    Version ({spaceVersions[0]?.versionNumber || 31}) • {spaceVersions.length} snapshots
+                                  </span>
+                                </div>
+                              </div>
+                              <ChevronRight className="w-3.5 h-3.5 text-neutral-500 group-hover:text-white transition-colors" />
+                            </button>
+
+                            {/* Push to team option */}
+                            <button 
+                              id="menu-push-to-team-button"
+                              onClick={() => {
+                                setIsMenuOpen(false);
+                                setShowTeamPushNotice(true);
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs bg-white hover:bg-neutral-200 text-black font-black uppercase tracking-wider transition-all shadow-md group cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-7 h-7 rounded-lg bg-neutral-900 flex items-center justify-center text-white">
+                                  <Users className="w-3.5 h-3.5" />
+                                </div>
+                                <div className="text-left">
+                                  <span className="font-black block text-[11px] leading-tight text-black">Push to Team</span>
+                                  <span className="text-[9px] text-neutral-700 font-medium normal-case font-mono leading-tight">
+                                    Sync space & preferences
+                                  </span>
+                                </div>
+                              </div>
+                              <ArrowRight className="w-3.5 h-3.5 text-black group-hover:translate-x-0.5 transition-transform" />
+                            </button>
+                          </div>
+
+                          <div className="h-[1px] bg-[#222] my-0.5 mx-2" />
+
+                          {/* Secondary options */}
+                          <div className="p-2 pt-1 space-y-0.5">
                             <button 
                               onClick={() => {
                                 setIsMenuOpen(false);
                                 setShowDeployModal(true);
                               }}
-                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-white hover:bg-neutral-800 transition-all"
+                              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-neutral-300 hover:text-white hover:bg-[#1A1A1A] transition-all cursor-pointer"
                             >
-                              <Globe className="w-3.5 h-3.5 text-neutral-300" />
+                              <Globe className="w-3.5 h-3.5 text-neutral-400" />
                               <span>Deploy to Render</span>
                             </button>
                             <button 
                               onClick={() => {
                                 setIsMenuOpen(false);
                                 setShowEnvPage(true);
-                                setShowPreview(false); // To render the config page inside the middle content area
+                                setShowPreview(false);
                               }}
-                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-neutral-300 hover:bg-neutral-800 transition-all"
+                              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-neutral-300 hover:text-white hover:bg-[#1A1A1A] transition-all cursor-pointer"
                             >
-                              <Sliders className="w-3.5 h-3.5 text-neutral-400" />
-                              <span>Environment Variables</span>
+                              <Key className="w-3.5 h-3.5 text-neutral-400" />
+                              <span>Secrets & Environment</span>
                             </button>
                             <button 
                               onClick={() => {
                                 setIsMenuOpen(false);
                                 setCurrentPage('integrations');
                               }}
-                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
+                              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-neutral-300 hover:text-white hover:bg-[#1A1A1A] transition-all cursor-pointer"
                             >
                               <Code className="w-3.5 h-3.5 text-neutral-400" />
                               <span>Sync to GitHub</span>
@@ -1953,7 +1991,6 @@ export default function App() {
                             <button 
                               onClick={() => {
                                 setIsMenuOpen(false);
-                                // Export logic
                                 const blob = new Blob([JSON.stringify({ space: currentSpace, files }, null, 2)], { type: 'application/json' });
                                 const url = URL.createObjectURL(blob);
                                 const a = document.createElement('a');
@@ -1961,11 +1998,13 @@ export default function App() {
                                 a.download = `${currentSpace.name.toLowerCase().replace(/\s+/g, '-')}-export.json`;
                                 a.click();
                               }}
-                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-[#1A1A1A] transition-all"
+                              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-neutral-300 hover:text-white hover:bg-[#1A1A1A] transition-all cursor-pointer"
                             >
-                              <Download className="w-3.5 h-3.5" />
-                              <span>Download Space</span>
+                              <Download className="w-3.5 h-3.5 text-neutral-400" />
+                              <span>Export Space JSON</span>
                             </button>
+
+                            <div className="h-[1px] bg-[#222] my-1" />
 
                             <button 
                               onClick={async () => {
@@ -1973,7 +2012,7 @@ export default function App() {
                                 await supabase.auth.signOut();
                                 setCurrentPage('landing');
                               }}
-                              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-red-500 hover:bg-red-500/10 transition-all"
+                              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-neutral-400 hover:text-white hover:bg-neutral-900 transition-all cursor-pointer"
                             >
                               <ArrowLeft className="w-3.5 h-3.5" />
                               <span>Sign Out</span>
@@ -2614,22 +2653,32 @@ export default function App() {
           {/* Compact Input Toolbar Section */}
           <div className="p-2 border-t border-[#262626] bg-[#0C0C0C] space-y-1.5 shrink-0">
             {images.length > 0 && (
-              <div className="flex flex-wrap gap-1 px-0.5">
-                {images.map((img, idx) => (
-                  <div key={idx} className="relative group">
-                    <img 
-                      src={`data:${img.mimeType};base64,${img.data}`} 
-                      alt="Upload" 
-                      className="w-8 h-8 rounded-lg object-cover border border-[#333]"
-                    />
-                    <button 
-                      onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
-                      className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-2 h-2" />
-                    </button>
-                  </div>
-                ))}
+              <div className="flex flex-wrap items-center gap-1.5 px-1 py-1 bg-[#141414] border border-[#222] rounded-xl mb-1">
+                <div className="flex items-center gap-1 text-[10px] text-neutral-400 font-mono px-1 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Gemini Multimodal Analysis ({images.length})</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {images.map((img, idx) => (
+                    <div key={idx} className="relative group flex items-center gap-1.5 bg-[#1C1C1C] border border-[#333] pl-1 pr-2 py-0.5 rounded-lg">
+                      <img 
+                        src={`data:${img.mimeType};base64,${img.data}`} 
+                        alt={img.name || "Upload"} 
+                        className="w-6 h-6 rounded object-cover border border-[#444]"
+                      />
+                      <span className="text-[10px] text-neutral-300 max-w-[90px] truncate font-medium">
+                        {img.name || `image_${idx + 1}`}
+                      </span>
+                      <button 
+                        onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))}
+                        className="text-neutral-500 hover:text-red-400 transition-colors p-0.5 rounded"
+                        title="Remove image"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             <div className="relative">
@@ -2637,7 +2686,7 @@ export default function App() {
                 type="file" 
                 ref={fileInputRef} 
                 className="hidden" 
-                accept="*/*" 
+                accept="image/*,.txt,.js,.ts,.tsx,.json,.html,.css,.md" 
                 multiple 
                 onChange={handleFileUpload} 
               />
@@ -2650,12 +2699,12 @@ export default function App() {
                     handleSendMessage();
                   }
                 }}
-                placeholder="Imagine..."
+                placeholder={images.length > 0 ? "Describe changes or press enter to analyze image with Gemini..." : "Imagine..."}
                 className="w-full bg-[#161616] border border-[#2A2A2A] rounded-xl px-2.5 py-1.5 pr-8 text-xs text-white focus:outline-none focus:border-neutral-500 transition-all resize-none min-h-[38px] max-h-[85px] custom-scrollbar shadow-inner"
               />
               <button 
                 onClick={() => handleSendMessage()}
-                disabled={isGenerating || !inputValue.trim()}
+                disabled={isGenerating || (!inputValue.trim() && images.length === 0)}
                 className="absolute right-1.5 bottom-1.5 w-6 h-6 bg-white hover:bg-neutral-200 disabled:opacity-30 text-black rounded-full transition-all shadow-md flex items-center justify-center active:scale-95 cursor-pointer"
                 title="Send Prompt (->)"
               >
@@ -3161,10 +3210,187 @@ export default function App() {
             </div>
             <button 
               onClick={() => setShowHelpModal(false)}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
+              className="w-full py-2.5 bg-white hover:bg-neutral-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer shadow-md"
             >
               Close
             </button>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+
+    {/* Versions Modal */}
+    <AnimatePresence>
+      {showVersionsModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowVersionsModal(false)}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            className="relative w-full max-w-lg bg-[#0F0F0F] border border-[#262626] rounded-2xl shadow-2xl overflow-hidden z-10 flex flex-col max-h-[85vh]"
+          >
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-[#222] bg-[#141414] flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-neutral-900 border border-neutral-700 flex items-center justify-center text-white">
+                  <History className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    Versions & Snapshots
+                    <span className="px-2 py-0.5 bg-white text-black font-mono text-[9px] font-black rounded-full">
+                      v{spaceVersions[0]?.versionNumber || 31} ACTIVE
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-neutral-400 font-mono">
+                    {currentSpace.name} • {spaceVersions.length} recorded versions
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowVersionsModal(false)} 
+                className="text-neutral-400 hover:text-white p-1.5 rounded-lg hover:bg-neutral-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Create Checkpoint Bar */}
+            <div className="p-4 border-b border-[#222] bg-[#0A0A0A]">
+              <label className="text-[10px] uppercase font-bold tracking-wider text-neutral-400 block mb-1.5">
+                Create Version Checkpoint
+              </label>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  value={newSnapshotLabel}
+                  onChange={(e) => setNewSnapshotLabel(e.target.value)}
+                  placeholder="e.g. Added responsive layout and auth flow"
+                  className="flex-1 bg-[#141414] border border-[#2A2A2A] rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-white transition-colors"
+                />
+                <button
+                  onClick={() => {
+                    const nextNum = (spaceVersions[0]?.versionNumber || 31) + 1;
+                    const newVer = {
+                      id: `v${nextNum}`,
+                      versionNumber: nextNum,
+                      label: newSnapshotLabel.trim() || `Manual Snapshot v${nextNum}`,
+                      timestamp: 'Just now',
+                      filesCount: files.length,
+                      author: 'You',
+                      filesSnapshot: JSON.parse(JSON.stringify(files))
+                    };
+                    setSpaceVersions([newVer, ...spaceVersions]);
+                    setNewSnapshotLabel('');
+                  }}
+                  className="px-4 py-2 bg-white hover:bg-neutral-200 text-black text-xs font-bold rounded-xl transition-all shadow cursor-pointer shrink-0"
+                >
+                  Snapshot
+                </button>
+              </div>
+            </div>
+
+            {/* Versions List */}
+            <div className="p-4 space-y-2.5 overflow-y-auto flex-1 custom-scrollbar">
+              {spaceVersions.map((ver, idx) => (
+                <div 
+                  key={ver.id}
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    idx === 0 
+                      ? 'bg-neutral-900/60 border-neutral-700 shadow-sm' 
+                      : 'bg-[#121212] border-[#222] hover:border-[#333]'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-white bg-black px-2 py-0.5 rounded border border-neutral-800">
+                          v{ver.versionNumber}
+                        </span>
+                        <span className="text-xs font-semibold text-neutral-200">{ver.label}</span>
+                        {idx === 0 && (
+                          <span className="text-[9px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-800/60 px-1.5 py-0.5 rounded">
+                            CURRENT
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-[10px] text-neutral-400 font-mono">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-neutral-500" />
+                          {ver.timestamp}
+                        </span>
+                        <span>•</span>
+                        <span>{ver.filesCount} Files</span>
+                        <span>•</span>
+                        <span>By {ver.author}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {idx !== 0 && (
+                        <button
+                          onClick={() => {
+                            if (ver.filesSnapshot && ver.filesSnapshot.length > 0) {
+                              setFiles(ver.filesSnapshot);
+                            }
+                            // Move restored version to top
+                            const updated = [
+                              {
+                                ...ver,
+                                label: `Restored from v${ver.versionNumber}: ${ver.label}`,
+                                timestamp: 'Just now',
+                                author: 'You'
+                              },
+                              ...spaceVersions.filter(v => v.id !== ver.id)
+                            ];
+                            setSpaceVersions(updated);
+                            setShowVersionsModal(false);
+                          }}
+                          className="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 hover:text-white rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer"
+                          title="Restore files to this version"
+                        >
+                          Restore
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          setShowVersionsModal(false);
+                          setShowTeamPushNotice(true);
+                        }}
+                        className="px-2.5 py-1 bg-white hover:bg-neutral-200 text-black rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer"
+                        title="Push this version to team"
+                      >
+                        Push
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-[#222] bg-[#141414] flex items-center justify-between">
+              <span className="text-[11px] font-mono text-neutral-400">
+                Auto-saved locally and synchronized
+              </span>
+              <button 
+                onClick={() => {
+                  setShowVersionsModal(false);
+                  setShowTeamPushNotice(true);
+                }}
+                className="px-4 py-2 bg-white hover:bg-neutral-200 text-black text-xs font-bold rounded-xl transition-all shadow cursor-pointer flex items-center gap-2"
+              >
+                <Users className="w-3.5 h-3.5 text-black" />
+                <span>Push Current to Team</span>
+              </button>
+            </div>
           </motion.div>
         </div>
       )}
@@ -3178,38 +3404,131 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => setShowTeamPushNotice(false)}
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => {
+              if (!isPushingToTeam) setShowTeamPushNotice(false);
+            }}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
           />
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            className="relative w-full max-w-sm bg-[#111] border border-[#262626] rounded-2xl p-6 shadow-2xl text-center z-10"
+            className="relative w-full max-w-md bg-[#0F0F0F] border border-[#262626] rounded-2xl p-6 shadow-2xl z-10 space-y-5"
           >
-            <div className="w-12 h-12 bg-blue-600/20 text-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-blue-500/30">
-              <Users className="w-6 h-6" />
-            </div>
-            <h3 className="text-base font-black text-white uppercase tracking-wider mb-2">Push to Team Space</h3>
-            <p className="text-xs text-gray-400 mb-6 leading-relaxed">
-              Synchronizing all space code, environment variables, and active model preferences with your organization workspace team members.
-            </p>
-            <div className="space-y-2">
+            <div className="flex items-center justify-between pb-3 border-b border-[#222]">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-white text-black rounded-xl flex items-center justify-center shadow-md">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white uppercase tracking-wider">Push to Team Space</h3>
+                  <p className="text-[10px] text-neutral-400 font-mono">Organization Workspace Sync</p>
+                </div>
+              </div>
               <button 
-                onClick={() => {
-                  setShowTeamPushNotice(false);
-                }}
-                className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-blue-600/30 cursor-pointer"
+                onClick={() => setShowTeamPushNotice(false)} 
+                className="text-neutral-400 hover:text-white p-1 rounded-lg hover:bg-neutral-800 transition-colors"
               >
-                Confirm Push to Team
-              </button>
-              <button 
-                onClick={() => setShowTeamPushNotice(false)}
-                className="w-full py-2.5 bg-transparent hover:bg-[#1A1A1A] text-gray-400 hover:text-white text-xs font-medium rounded-xl transition-all cursor-pointer"
-              >
-                Cancel
+                <X className="w-4 h-4" />
               </button>
             </div>
+
+            {teamPushSuccess ? (
+              <div className="py-6 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center mx-auto shadow-xl">
+                  <Check className="w-6 h-6 stroke-[3]" />
+                </div>
+                <h4 className="text-sm font-bold text-white">Successfully Pushed to Team!</h4>
+                <p className="text-xs text-neutral-400 font-mono">
+                  All workspace files, version v{spaceVersions[0]?.versionNumber || 31}, and environment variables are live for team collaborators.
+                </p>
+                <button
+                  onClick={() => {
+                    setTeamPushSuccess(false);
+                    setShowTeamPushNotice(false);
+                  }}
+                  className="w-full py-2.5 bg-white hover:bg-neutral-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer mt-4"
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Space & Version Summary */}
+                <div className="p-3 bg-[#141414] border border-[#262626] rounded-xl space-y-2 text-xs">
+                  <div className="flex items-center justify-between text-neutral-300">
+                    <span className="text-neutral-400 font-mono text-[11px]">Space</span>
+                    <span className="font-bold text-white">{currentSpace.name}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-neutral-300">
+                    <span className="text-neutral-400 font-mono text-[11px]">Active Version</span>
+                    <span className="font-mono bg-black px-2 py-0.5 rounded border border-neutral-800 text-white text-[10px]">
+                      v{spaceVersions[0]?.versionNumber || 31}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-neutral-300">
+                    <span className="text-neutral-400 font-mono text-[11px]">Files Synced</span>
+                    <span className="font-mono text-neutral-200 text-[11px]">{files.length} code files</span>
+                  </div>
+                </div>
+
+                {/* Commit/Sync Message */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-neutral-400 block">
+                    Sync Note / Commit Message
+                  </label>
+                  <input
+                    type="text"
+                    value={teamPushCommitMsg}
+                    onChange={(e) => setTeamPushCommitMsg(e.target.value)}
+                    placeholder="Describe what changed in this version..."
+                    className="w-full bg-[#141414] border border-[#2A2A2A] rounded-xl px-3 py-2.5 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-white transition-colors"
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="space-y-2 pt-2">
+                  <button 
+                    disabled={isPushingToTeam}
+                    onClick={async () => {
+                      setIsPushingToTeam(true);
+                      // Perform Supabase sync if user logged in
+                      if (session?.user?.id) {
+                        await syncSpaceToSupabase(currentSpace, files, messages);
+                      }
+                      setTimeout(() => {
+                        setIsPushingToTeam(false);
+                        setTeamPushSuccess(true);
+                      }, 900);
+                    }}
+                    className="w-full py-3 bg-white hover:bg-neutral-200 text-black text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-lg cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {isPushingToTeam ? (
+                      <>
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                          className="w-4 h-4 border-2 border-black border-t-transparent rounded-full"
+                        />
+                        <span>Pushing to Team...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Users className="w-3.5 h-3.5 text-black" />
+                        <span>Confirm Push to Team</span>
+                      </>
+                    )}
+                  </button>
+                  <button 
+                    disabled={isPushingToTeam}
+                    onClick={() => setShowTeamPushNotice(false)}
+                    className="w-full py-2.5 bg-transparent hover:bg-[#1A1A1A] text-neutral-400 hover:text-white text-xs font-medium rounded-xl transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
           </motion.div>
         </div>
       )}
