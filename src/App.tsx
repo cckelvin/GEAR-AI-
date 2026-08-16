@@ -81,7 +81,8 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
-  GitBranch
+  GitBranch,
+  Github
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
@@ -104,6 +105,9 @@ import TeamsPage from './components/TeamsPage';
 import MarketPage from './components/MarketPage';
 import AccountPage from './components/AccountPage';
 import AiMessageItem from './components/AiMessageItem';
+import PhysicalBrushEditor, { InspectedElementData } from './components/PhysicalBrushEditor';
+import GitHubPushModal from './components/GitHubPushModal';
+import { LinkedRepoInfo } from './services/github';
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -149,6 +153,9 @@ export default function App() {
   const [showDeviceMenu, setShowDeviceMenu] = useState(false);
   const [isRotated, setIsRotated] = useState(false);
   const [isInspectorActive, setIsInspectorActive] = useState(false);
+  const [inspectedElement, setInspectedElement] = useState<InspectedElementData | null>(null);
+  const [isDrawingMode, setIsDrawingMode] = useState(false);
+  const previewIframeRef = useRef<HTMLIFrameElement | null>(null);
   const [currentSpace, setCurrentSpace] = useState<Space>({ id: '0', name: 'UNTITLED SPACE', updatedAt: 'Just now' });
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [showCreateSpaceModal, setShowCreateSpaceModal] = useState(false);
@@ -212,6 +219,26 @@ export default function App() {
   const [deploymentName, setDeploymentName] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
   const [showDeployModal, setShowDeployModal] = useState(false);
+  const [showGitHubModal, setShowGitHubModal] = useState(false);
+  const [linkedRepoInfo, setLinkedRepoInfo] = useState<LinkedRepoInfo | null>(null);
+
+  // Load linked GitHub repo for current space
+  useEffect(() => {
+    if (currentSpace?.id) {
+      const stored = localStorage.getItem(`gear_github_repo_${currentSpace.id}`);
+      if (stored) {
+        try {
+          setLinkedRepoInfo(JSON.parse(stored));
+        } catch (e) {
+          setLinkedRepoInfo(null);
+        }
+      } else {
+        setLinkedRepoInfo(null);
+      }
+    } else {
+      setLinkedRepoInfo(null);
+    }
+  }, [currentSpace?.id]);
 
   const [showEnvPage, setShowEnvPage] = useState(false);
   const [envVars, setEnvVars] = useState<{ id: string, name: string, value: string }[]>([]);
@@ -690,10 +717,39 @@ export default function App() {
       if (event.data?.type === 'PREVIEW_LOG') {
         setLogs(prev => [...prev, event.data.log].slice(-100));
       }
+      if (event.data?.type === 'BRUSH_ELEMENT_SELECTED') {
+        setInspectedElement(event.data.element);
+      }
+      if (event.data?.type === 'BRUSH_HTML_MUTATED') {
+        const newFullHtml = event.data.fullHtml;
+        if (newFullHtml) {
+          setFiles(prev => {
+            const idx = prev.findIndex(f => f.name === 'index.html');
+            if (idx >= 0) {
+              let cleanHtml = newFullHtml.replace(/<div id="__brush_inspector_overlay"[\s\S]*?<\/div><\/div>/g, '');
+              cleanHtml = cleanHtml.replace(/<div id="__brush_inspector_overlay"[\s\S]*?<\/div>/g, '');
+              const updated = [...prev];
+              updated[idx] = { ...updated[idx], content: cleanHtml };
+              return updated;
+            }
+            return prev;
+          });
+        }
+      }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
+
+  // Post brush active state to preview iframe whenever it toggles
+  useEffect(() => {
+    if (previewIframeRef.current && previewIframeRef.current.contentWindow) {
+      previewIframeRef.current.contentWindow.postMessage({
+        type: 'SET_BRUSH_ACTIVE',
+        active: isInspectorActive
+      }, '*');
+    }
+  }, [isInspectorActive]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFiles = e.target.files;
@@ -766,6 +822,44 @@ export default function App() {
 
   const [aiMode, setAiMode] = useState<'fast' | 'complex'>('complex');
   const [combinedCode, setCombinedCode] = useState('');
+
+  const handleApplyPhysicalBrushUpdate = (updates: {
+    text?: string;
+    classes?: string;
+    style?: Record<string, string>;
+    remove?: boolean;
+    duplicate?: boolean;
+  }) => {
+    if (previewIframeRef.current && previewIframeRef.current.contentWindow) {
+      previewIframeRef.current.contentWindow.postMessage({
+        type: 'APPLY_PHYSICAL_BRUSH_UPDATE',
+        selector: inspectedElement?.selector,
+        updates
+      }, '*');
+    }
+  };
+
+  const handleBrushAiPrompt = (prompt: string, elementContext?: InspectedElementData) => {
+    let fullPrompt = prompt;
+    if (elementContext) {
+      fullPrompt = `[PHYSICAL BRUSH TARGET ELEMENT]:\nTag: <${elementContext.tag}>\nSelector: ${elementContext.selector}\nClasses: "${elementContext.classes}"\nCurrent HTML:\n\`\`\`html\n${elementContext.html}\n\`\`\`\n\nUSER REQUEST FOR THIS SPECIFIC ELEMENT:\n${prompt}`;
+    }
+    handleSendMessage(fullPrompt);
+  };
+
+  const handleSendDrawingToAi = (dataUrl: string) => {
+    const base64Data = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+    setImages(prev => [
+      ...prev,
+      {
+        data: base64Data,
+        mimeType: 'image/png',
+        name: 'brush_sketch_annotation.png'
+      }
+    ]);
+    const drawingPrompt = `[PHYSICAL FREEHAND BRUSH SKETCH]: I have physically drawn annotations and visual notes over the application preview canvas. Please analyze the highlighted regions/arrows/marks in the attached sketch and implement the corresponding visual and layout changes in the workspace code.`;
+    handleSendMessage(drawingPrompt);
+  };
 
   const handleApplyCode = (fileName: string, content: string) => {
     const index = files.findIndex(f => f.name === fileName);
@@ -894,6 +988,208 @@ export default function App() {
                   }
                 }
               }, true);
+            })();
+          </script>
+          <script>
+            // Physical Brush Inspector and DOM Mutation Bridge
+            (function() {
+              let isBrushActive = ${isInspectorActive ? 'true' : 'false'};
+              let hoveredEl = null;
+              let selectedEl = null;
+              let highlightOverlay = null;
+
+              function ensureOverlay() {
+                if (!highlightOverlay) {
+                  highlightOverlay = document.createElement('div');
+                  highlightOverlay.id = '__brush_inspector_overlay';
+                  highlightOverlay.style.position = 'fixed';
+                  highlightOverlay.style.pointerEvents = 'none';
+                  highlightOverlay.style.zIndex = '999999';
+                  highlightOverlay.style.border = '2px dashed #6366f1';
+                  highlightOverlay.style.backgroundColor = 'rgba(99, 102, 241, 0.15)';
+                  highlightOverlay.style.borderRadius = '6px';
+                  highlightOverlay.style.transition = 'all 0.05s ease';
+                  highlightOverlay.style.display = 'none';
+                  
+                  const badge = document.createElement('div');
+                  badge.id = '__brush_badge';
+                  badge.style.position = 'absolute';
+                  badge.style.top = '-22px';
+                  badge.style.left = '0';
+                  badge.style.backgroundColor = '#4f46e5';
+                  badge.style.color = '#ffffff';
+                  badge.style.fontFamily = 'ui-monospace, monospace';
+                  badge.style.fontSize = '10px';
+                  badge.style.padding = '2px 6px';
+                  badge.style.borderRadius = '4px';
+                  badge.style.whiteSpace = 'nowrap';
+                  badge.style.fontWeight = 'bold';
+                  badge.style.boxShadow = '0 2px 8px rgba(0,0,0,0.5)';
+                  highlightOverlay.appendChild(badge);
+
+                  document.body.appendChild(highlightOverlay);
+                }
+              }
+
+              function getElementSelector(el) {
+                if (!el || el === document.body || el === document.documentElement) return 'body';
+                if (el.id) return '#' + el.id;
+                let path = [];
+                while (el && el.nodeType === Node.ELEMENT_NODE && el !== document.body && el !== document.documentElement) {
+                  let selector = el.nodeName.toLowerCase();
+                  if (el.className && typeof el.className === 'string' && el.className.trim()) {
+                    const firstClass = el.className.trim().split(/\s+/)[0];
+                    if (firstClass && !firstClass.includes(':') && !firstClass.includes('[')) {
+                      selector += '.' + firstClass;
+                    }
+                  }
+                  let siblingIndex = 1;
+                  let sibling = el.previousElementSibling;
+                  while (sibling) {
+                    if (sibling.nodeName.toLowerCase() === el.nodeName.toLowerCase()) {
+                      siblingIndex++;
+                    }
+                    sibling = sibling.previousElementSibling;
+                  }
+                  selector += ':nth-of-type(' + siblingIndex + ')';
+                  path.unshift(selector);
+                  el = el.parentElement;
+                }
+                return path.join(' > ');
+              }
+
+              function updateOverlay(el) {
+                ensureOverlay();
+                if (!el || el === document.body || el === document.documentElement || el.id === '__brush_inspector_overlay' || (highlightOverlay && highlightOverlay.contains(el))) {
+                  if (highlightOverlay) highlightOverlay.style.display = 'none';
+                  return;
+                }
+                const rect = el.getBoundingClientRect();
+                highlightOverlay.style.display = 'block';
+                highlightOverlay.style.top = rect.top + 'px';
+                highlightOverlay.style.left = rect.left + 'px';
+                highlightOverlay.style.width = rect.width + 'px';
+                highlightOverlay.style.height = rect.height + 'px';
+                
+                const badge = document.getElementById('__brush_badge');
+                if (badge) {
+                  let tagText = '<' + el.tagName.toLowerCase();
+                  if (el.id) tagText += '#' + el.id;
+                  else if (el.classList && el.classList.length > 0) tagText += '.' + el.classList[0];
+                  tagText += '>';
+                  badge.textContent = tagText + ' ' + Math.round(rect.width) + '×' + Math.round(rect.height);
+                }
+              }
+
+              window.addEventListener('mousemove', function(e) {
+                if (!isBrushActive) return;
+                const target = e.target;
+                if (target && target !== highlightOverlay && (!highlightOverlay || !highlightOverlay.contains(target))) {
+                  hoveredEl = target;
+                  updateOverlay(target);
+                }
+              }, true);
+
+              window.addEventListener('click', function(e) {
+                if (!isBrushActive) return;
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const target = e.target;
+                if (target && target !== highlightOverlay && (!highlightOverlay || !highlightOverlay.contains(target))) {
+                  selectedEl = target;
+                  updateOverlay(target);
+                  
+                  const computed = window.getComputedStyle(target);
+                  const rect = target.getBoundingClientRect();
+                  
+                  window.parent.postMessage({
+                    type: 'BRUSH_ELEMENT_SELECTED',
+                    element: {
+                      tag: target.tagName.toLowerCase(),
+                      id: target.id || '',
+                      classes: target.className || '',
+                      text: target.innerText || target.textContent || '',
+                      html: target.outerHTML,
+                      selector: getElementSelector(target),
+                      styles: {
+                        color: computed.color,
+                        backgroundColor: computed.backgroundColor,
+                        fontSize: computed.fontSize,
+                        fontWeight: computed.fontWeight,
+                        padding: computed.padding,
+                        margin: computed.margin,
+                        borderRadius: computed.borderRadius,
+                        textAlign: computed.textAlign,
+                        display: computed.display,
+                        borderColor: computed.borderColor,
+                        borderWidth: computed.borderWidth
+                      },
+                      rect: {
+                        top: rect.top,
+                        left: rect.left,
+                        width: rect.width,
+                        height: rect.height
+                      }
+                    }
+                  }, '*');
+                }
+              }, true);
+
+              // Listen for physical brush updates from parent
+              window.addEventListener('message', function(event) {
+                if (!event.data) return;
+                
+                if (event.data.type === 'SET_BRUSH_ACTIVE') {
+                  isBrushActive = !!event.data.active;
+                  if (!isBrushActive && highlightOverlay) {
+                    highlightOverlay.style.display = 'none';
+                  }
+                }
+
+                if (event.data.type === 'APPLY_PHYSICAL_BRUSH_UPDATE') {
+                  const { selector, updates } = event.data;
+                  let target = null;
+                  if (selector) {
+                    try {
+                      target = document.querySelector(selector);
+                    } catch(e) {}
+                  }
+                  if (!target && selectedEl) target = selectedEl;
+                  
+                  if (target) {
+                    if (updates.text !== undefined) {
+                      target.innerText = updates.text;
+                    }
+                    if (updates.classes !== undefined) {
+                      target.className = updates.classes;
+                    }
+                    if (updates.style) {
+                      Object.assign(target.style, updates.style);
+                    }
+                    if (updates.remove) {
+                      target.remove();
+                      if (highlightOverlay) highlightOverlay.style.display = 'none';
+                    }
+                    if (updates.duplicate) {
+                      const clone = target.cloneNode(true);
+                      target.parentNode?.insertBefore(clone, target.nextSibling);
+                    }
+                    
+                    if (!updates.remove) {
+                      updateOverlay(target);
+                    }
+
+                    if (highlightOverlay) highlightOverlay.style.display = 'none';
+                    const fullDocHtml = document.documentElement.outerHTML;
+
+                    window.parent.postMessage({
+                      type: 'BRUSH_HTML_MUTATED',
+                      fullHtml: fullDocHtml
+                    }, '*');
+                  }
+                }
+              });
             })();
           </script>
           ${headContent}
@@ -1845,6 +2141,24 @@ export default function App() {
                     <span>Plugins</span>
                   </button>
 
+                  {/* GitHub Direct Sync Button */}
+                  <button 
+                    id="header-github-push-button"
+                    onClick={() => setShowGitHubModal(true)}
+                    className={`px-2.5 py-1 border rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                      linkedRepoInfo
+                        ? 'bg-neutral-900 hover:bg-neutral-800 text-white border-neutral-700'
+                        : 'bg-[#141414] hover:bg-[#1C1C1C] text-neutral-300 hover:text-white border-[#262626]'
+                    }`}
+                    title={linkedRepoInfo ? `Linked to ${linkedRepoInfo.fullName} (Click to push updates)` : 'Push code to GitHub repository'}
+                  >
+                    <Github className="w-3.5 h-3.5 text-white" />
+                    <span>{linkedRepoInfo ? 'Update GitHub' : 'GitHub'}</span>
+                    {linkedRepoInfo && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    )}
+                  </button>
+
                   <button 
                     onClick={() => {
                       const blob = new Blob([JSON.stringify({ space: currentSpace, files }, null, 2)], { type: 'application/json' });
@@ -1854,8 +2168,8 @@ export default function App() {
                       a.download = `${currentSpace.name.toLowerCase().replace(/\s+/g, '-')}-export.json`;
                       a.click();
                     }}
-                    className="px-2.5 py-1 bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] text-gray-300 hover:text-white rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5"
-                    title="Export Space Code"
+                    className="px-2.5 py-1 bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] text-gray-300 hover:text-white rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                    title="Export Space Code JSON"
                   >
                     <Upload className="w-3.5 h-3.5 text-neutral-300" />
                     <span>Export</span>
@@ -1929,6 +2243,36 @@ export default function App() {
                               <ChevronRight className="w-3.5 h-3.5 text-neutral-500 group-hover:text-white transition-colors" />
                             </button>
 
+                            {/* Push to GitHub repository option */}
+                            <button 
+                              id="menu-push-to-github-button"
+                              onClick={() => {
+                                setIsMenuOpen(false);
+                                setShowGitHubModal(true);
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs bg-[#1C1C1C] hover:bg-[#252525] text-white font-bold transition-all border border-[#2E2E2E] group cursor-pointer shadow-sm"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-7 h-7 rounded-lg bg-white text-black flex items-center justify-center shadow-sm">
+                                  <Github className="w-4 h-4" />
+                                </div>
+                                <div className="text-left">
+                                  <span className="font-bold block text-[11px] leading-tight text-white flex items-center gap-1.5">
+                                    {linkedRepoInfo ? 'Update GitHub Repo' : 'Push to GitHub'}
+                                    {linkedRepoInfo && (
+                                      <span className="px-1.5 py-0.2 bg-emerald-500/20 text-emerald-400 text-[8px] font-mono rounded font-bold">
+                                        LINKED
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="text-[9px] text-neutral-400 font-medium normal-case font-mono leading-tight truncate max-w-[140px] block">
+                                    {linkedRepoInfo ? linkedRepoInfo.fullName : 'Commit code directly'}
+                                  </span>
+                                </div>
+                              </div>
+                              <ChevronRight className="w-3.5 h-3.5 text-neutral-500 group-hover:text-white transition-colors" />
+                            </button>
+
                             {/* Push to team option */}
                             <button 
                               id="menu-push-to-team-button"
@@ -1981,12 +2325,12 @@ export default function App() {
                             <button 
                               onClick={() => {
                                 setIsMenuOpen(false);
-                                setCurrentPage('integrations');
+                                setShowGitHubModal(true);
                               }}
                               className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-neutral-300 hover:text-white hover:bg-[#1A1A1A] transition-all cursor-pointer"
                             >
                               <Code className="w-3.5 h-3.5 text-neutral-400" />
-                              <span>Sync to GitHub</span>
+                              <span>Sync to GitHub ({linkedRepoInfo ? 'Linked' : 'Setup'})</span>
                             </button>
                             <button 
                               onClick={() => {
@@ -2134,6 +2478,19 @@ export default function App() {
                 setCurrentPage('landing');
               }}
             />
+          ) : currentPage === 'integrations' ? (
+            <IntegrationsPage
+              setCurrentPage={setCurrentPage}
+              showShelf={showShelf}
+              setShowShelf={setShowShelf}
+              connectedIntegrations={connectedIntegrations}
+              setConnectedIntegrations={setConnectedIntegrations}
+              integrationsTab={integrationsTab}
+              setIntegrationsTab={setIntegrationsTab}
+              configuringIntegration={configuringIntegration}
+              setConfiguringIntegration={setConfiguringIntegration}
+              onOpenGitHubModal={() => setShowGitHubModal(true)}
+            />
           ) : currentPage === 'features' ? (
             <FeaturesPage />
           ) : currentPage === 'solutions' ? (
@@ -2198,14 +2555,22 @@ export default function App() {
                     <span>Preview</span>
                   </span>
 
-                  {/* Paintbrush Inspector Button */}
+                  {/* Physical Brush & Inspector Button */}
                   <button 
-                    onClick={() => setIsInspectorActive(!isInspectorActive)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${isInspectorActive ? 'bg-white text-black border-white shadow-lg' : 'bg-[#141414] text-gray-400 hover:text-white border-[#262626] hover:bg-[#222]'}`}
-                    title="Paintbrush Tool: Click to tap and apprehend any element on the website"
+                    onClick={() => {
+                      const nextState = !isInspectorActive;
+                      setIsInspectorActive(nextState);
+                      if (!nextState) {
+                        setInspectedElement(null);
+                        setIsDrawingMode(false);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${isInspectorActive ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white border-indigo-400 shadow-lg shadow-indigo-500/25 ring-2 ring-indigo-400/50' : 'bg-[#141414] text-gray-400 hover:text-white border-[#262626] hover:bg-[#222]'}`}
+                    title="Physical Brush Tool: Directly edit styles, text, classes or sketch physical annotations with freehand brush"
                   >
-                    <Paintbrush className={`w-3.5 h-3.5 ${isInspectorActive ? 'animate-bounce text-black' : 'text-neutral-300'}`} />
-                    <span className="hidden sm:inline">Inspector</span>
+                    <Paintbrush className={`w-3.5 h-3.5 ${isInspectorActive ? 'animate-pulse text-white' : 'text-neutral-300'}`} />
+                    <span className="font-extrabold tracking-wide">Physical Brush</span>
+                    {isInspectorActive && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping ml-0.5" />}
                   </button>
                 </div>
                 
@@ -2358,9 +2723,10 @@ export default function App() {
                       : previewDevice === 'tv'
                       ? 'w-full h-full max-w-[1440px] rounded-xl border border-[#222]'
                       : 'w-full h-full'
-                  } ${isInspectorActive ? 'ring-4 ring-indigo-500/80' : ''}`}
+                  } ${isInspectorActive ? 'ring-4 ring-indigo-500/80 shadow-indigo-500/20' : ''}`}
                 >
                   <iframe
+                    ref={previewIframeRef}
                     key={previewKey}
                     srcDoc={combinedCode}
                     className="w-full h-full border-none rounded-lg"
@@ -2368,6 +2734,21 @@ export default function App() {
                     sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"
                   />
                 </div>
+
+                {/* Physical Brush Inspector & Canvas Overlay Tool */}
+                {(isInspectorActive || inspectedElement || isDrawingMode) && (
+                  <PhysicalBrushEditor
+                    isBrushActive={isInspectorActive}
+                    onToggleBrush={setIsInspectorActive}
+                    inspectedElement={inspectedElement}
+                    onClearSelection={() => setInspectedElement(null)}
+                    onApplyUpdate={handleApplyPhysicalBrushUpdate}
+                    onSendAiPrompt={handleBrushAiPrompt}
+                    onSendDrawingToAi={handleSendDrawingToAi}
+                    isDrawingMode={isDrawingMode}
+                    onToggleDrawingMode={setIsDrawingMode}
+                  />
+                )}
               </div>
 
               {showLogs && (
@@ -3533,6 +3914,15 @@ export default function App() {
         </div>
       )}
     </AnimatePresence>
+      {/* GitHub Push & Update Modal */}
+      <GitHubPushModal
+        isOpen={showGitHubModal}
+        onClose={() => setShowGitHubModal(false)}
+        spaceId={currentSpace?.id || '0'}
+        spaceName={currentSpace?.name || 'Untitled Space'}
+        files={files}
+        onRepoLinked={(info) => setLinkedRepoInfo(info)}
+      />
     </>
   );
 }

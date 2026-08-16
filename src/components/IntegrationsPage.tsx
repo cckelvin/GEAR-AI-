@@ -22,6 +22,7 @@ interface IntegrationsPageProps {
   setIntegrationsTab: (tab: 'builtin' | 'plugins') => void;
   configuringIntegration: string | null;
   setConfiguringIntegration: (id: string | null) => void;
+  onOpenGitHubModal?: () => void;
 }
 
 export default function IntegrationsPage({
@@ -34,6 +35,7 @@ export default function IntegrationsPage({
   setIntegrationsTab,
   configuringIntegration,
   setConfiguringIntegration,
+  onOpenGitHubModal,
 }: IntegrationsPageProps) {
   const integrations = {
     builtin: [
@@ -60,13 +62,23 @@ export default function IntegrationsPage({
       { id: 'tailwind', name: 'Tailwind CSS', desc: 'Utility-first CSS framework for rapid UI development.', icon: <Layers className="w-5 h-5 text-white" /> }
     ],
     plugins: [
-      { id: 'github', name: 'GitHub', desc: 'Sync your code with GitHub repositories.', icon: <Code className="w-5 h-5 text-white" />, fields: [{ label: 'Personal Access Token', value: '' }, { label: 'Repo Name', value: '' }] }
+      { 
+        id: 'github', 
+        name: 'GitHub Repository Sync', 
+        desc: 'Push workspace code directly to GitHub and push continuous updates like Google AI Studio.', 
+        icon: <Code className="w-5 h-5 text-white" />, 
+        isGitHubSpecial: true
+      }
     ]
   };
 
   const handleConnect = (id: string) => {
+    if (id === 'github' && onOpenGitHubModal) {
+      onOpenGitHubModal();
+      return;
+    }
     const item = [...integrations.builtin, ...integrations.plugins].find(i => i.id === id);
-    if (item?.fields) {
+    if (item && 'fields' in item && item.fields) {
       setConfiguringIntegration(id);
     } else {
       toggleIntegration(id);
