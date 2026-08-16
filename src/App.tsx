@@ -1277,7 +1277,7 @@ export default function App() {
         return acc;
       }, []);
       
-      const stream = await generateCodeResponseStream(currentInput, history, images, files, aiSettings);
+      const stream = await generateCodeResponseStream(currentInput, history, images, files, { ...aiSettings, activeModel });
       let fullResponse = "";
       
       // Add initial AI message
@@ -2064,7 +2064,15 @@ export default function App() {
             <OverviewPage
               spaces={spaces}
               currentSpace={currentSpace}
+              setCurrentSpace={setCurrentSpace}
+              loadSpaceFiles={loadSpaceFiles}
+              loadSpaceMessages={loadSpaceMessages}
               setCurrentPage={setCurrentPage}
+              setShowPreview={setShowPreview}
+              handleNewSpace={handleNewSpace}
+              deleteSpace={deleteSpace}
+              aiSettings={aiSettings}
+              setInputValue={setInputValue}
             />
           ) : currentPage === 'teams' ? (
             <TeamsPage
@@ -3016,12 +3024,13 @@ export default function App() {
                   setCurrentPage('overview');
                   setIsLeftMenuOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'overview' ? 'bg-[#1E1E1E] text-white border-blue-500 shadow-lg shadow-blue-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
+                className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${currentPage === 'overview' ? 'bg-[#1E1E1E] text-white border-indigo-500 shadow-lg shadow-indigo-500/10' : 'bg-[#141414] text-gray-300 border-[#262626] hover:bg-[#1C1C1C] hover:text-white hover:border-gray-700'}`}
               >
                 <div className="flex items-center gap-3">
-                  <Eye className="w-4 h-4 text-blue-400" />
-                  <span>OVERVIEW</span>
+                  <Zap className="w-4 h-4 text-indigo-400" />
+                  <span>BUILD FASTER</span>
                 </div>
+                <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-md font-bold">PRO</span>
               </button>
 
               <button 
