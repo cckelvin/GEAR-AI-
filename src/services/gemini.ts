@@ -1,34 +1,78 @@
 import { GoogleGenAI } from "@google/genai";
 
-const apiKeys = [
-  import.meta.env.VITE_GEAR_API,
-  import.meta.env.VITE_GEAR_API_2,
-  import.meta.env.VITE_GEAR_API_3,
-  process.env.GEMINI_API_KEY
-].filter(Boolean) as string[];
+export function getEffectiveApiKeys(): string[] {
+  const keys: string[] = [];
+
+  // 1. Check direct client-side environment variables
+  if (import.meta.env.VITE_GEAR_API) keys.push(import.meta.env.VITE_GEAR_API);
+  if (import.meta.env.VITE_GEAR_API_2) keys.push(import.meta.env.VITE_GEAR_API_2);
+  if (import.meta.env.VITE_GEAR_API_3) keys.push(import.meta.env.VITE_GEAR_API_3);
+  if (import.meta.env.VITE_GEMINI_API_KEY) keys.push(import.meta.env.VITE_GEMINI_API_KEY);
+
+  // 2. Check localStorage saved keys
+  if (typeof window !== 'undefined') {
+    const savedGeminiKey = localStorage.getItem('gear_gemini_key');
+    if (savedGeminiKey && savedGeminiKey.trim()) keys.push(savedGeminiKey.trim());
+
+    const savedApiKey = localStorage.getItem('gear_api_key');
+    if (savedApiKey && savedApiKey.trim()) keys.push(savedApiKey.trim());
+
+    // Check current space env variables
+    const currentSpaceId = localStorage.getItem('gear_current_space_id');
+    if (currentSpaceId) {
+      try {
+        const storedEnv = localStorage.getItem(`gear_env_${currentSpaceId}`);
+        if (storedEnv) {
+          const parsed = JSON.parse(storedEnv);
+          if (Array.isArray(parsed)) {
+            const foundKey = parsed.find(
+              (v: any) => v && ['GEMINI_API_KEY', 'API_KEY', 'GEAR_API', 'VITE_GEAR_API'].includes(v.name?.toUpperCase())
+            );
+            if (foundKey && foundKey.value && foundKey.value.trim()) {
+              keys.unshift(foundKey.value.trim());
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Check all stored space env variables as fallback
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('gear_env_')) {
+          const stored = localStorage.getItem(k);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed)) {
+              parsed.forEach((v: any) => {
+                if (v && ['GEMINI_API_KEY', 'API_KEY', 'GEAR_API'].includes(v.name?.toUpperCase()) && v.value?.trim()) {
+                  if (!keys.includes(v.value.trim())) {
+                    keys.push(v.value.trim());
+                  }
+                }
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Filter out any placeholders or invalid strings
+  return keys.filter(k => k && k !== 'undefined' && k !== 'null' && k.length > 5);
+}
 
 let currentKeyIndex = 0;
 
 function getAI() {
-  if (apiKeys.length === 0) {
-    throw new Error("No Gemini API keys configured. Please set GEMINI_API_KEY in your environment.");
+  const keys = getEffectiveApiKeys();
+  if (keys.length === 0) {
+    return null;
   }
   
-  // Try to find a valid key, skipping any that might be "undefined" as a string
-  let apiKey = apiKeys[currentKeyIndex];
-  let attempts = 0;
-  while ((!apiKey || apiKey === "undefined") && attempts < apiKeys.length) {
-    currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
-    apiKey = apiKeys[currentKeyIndex];
-    attempts++;
-  }
-
-  if (!apiKey || apiKey === "undefined") {
-    throw new Error("No valid Gemini API keys found.");
-  }
-
-  // Rotate for next time
-  currentKeyIndex = (currentKeyIndex + 1) % apiKeys.length;
+  const apiKey = keys[currentKeyIndex % keys.length];
+  currentKeyIndex = (currentKeyIndex + 1) % keys.length;
   
   return new GoogleGenAI({ apiKey });
 }
@@ -173,8 +217,33 @@ Core Directives:
    - Tailwind Processing: Use standard Tailwind classes. Assume the preview window has the Tailwind CDN script loaded in the head.
 6. Explicit File Labeling (MANDATORY): Always provide code in markdown blocks with the file path as a label: \`\`\`language:path/to/file.ext\n[code]\n\`\`\`. For example, \`\`\`html:index.html\n[code]\n\`\`\`. This is CRITICAL. If you do not include the :filename, the system cannot update the files.
 7. Complete Files: Always provide the full content of the file, not just snippets, unless explicitly asked for a diff. This ensures the user's editor is always in a valid state.
-8. Context Awareness: You are provided with the current space files. Modify existing files or create new ones as needed to fulfill the user's request.
-9. No Mock Data: Build actual API calls, OAuth flows, and database schemas.
+8. Context Awareness & Strict Space Isolation: You are provided with the current space files and active space context. You must ONLY modify or refer to the current space's architecture. Never mix up files, names, or features with any other spaces or unrelated project histories.
+9. CRITICAL: INBUILT ENVIRONMENT & SECRETS CALLING (MANDATORY):
+   - Gear Studio automatically injects all workspace environment variables and secrets into runtime via \`process.env\`, \`window.ENV\`, \`import.meta.env\`, and \`window.getSecret('KEY_NAME')\`.
+   - When building features that require API keys, credentials, backend tokens, or endpoints (such as Gemini API, OpenAI, ElevenLabs, Supabase, Firebase, Stripe, OpenWeather, Mapbox, GitHub, etc.):
+     • NEVER leave empty strings (e.g. \`const apiKey = ""\`) or dummy placeholder text (e.g. \`const apiKey = "YOUR_API_KEY_HERE"\`).
+     • ALWAYS access the key dynamically using the inbuilt environment calling methods:
+       \`const apiKey = process.env.API_KEY || window.ENV?.API_KEY || window.getSecret('API_KEY');\`
+       \`const geminiApiKey = process.env.GEMINI_API_KEY || window.ENV?.GEMINI_API_KEY || window.getSecret('GEMINI_API_KEY');\`
+       \`const supabaseUrl = process.env.SUPABASE_URL || window.ENV?.SUPABASE_URL || window.getSecret('SUPABASE_URL');\`
+     • When making Gemini AI calls in user code, use the standard browser REST API format:
+       \`\`\`javascript
+       const GEMINI_API_KEY = process.env.GEMINI_API_KEY || window.ENV?.GEMINI_API_KEY || window.getSecret('GEMINI_API_KEY');
+       async function callGemini(userPrompt) {
+         if (!GEMINI_API_KEY) {
+           console.warn('GEMINI_API_KEY not configured. Add it in Secrets & Environment Variables.');
+           return 'Please configure your GEMINI_API_KEY in the Secrets page.';
+         }
+         const response = await fetch(\\\`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=\\\${GEMINI_API_KEY}\\\`, {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ contents: [{ parts: [{ text: userPrompt }] }] })
+         });
+         const data = await response.json();
+         return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
+       }
+       \`\`\`
+     • Inform the user that the code will seamlessly use their active space secrets.
 10. Built-in Integrations:
    - Gear Studio provides several built-in integrations like Gemini AI, Lucide Icons, and Tailwind CSS.
    - If a user needs a database, you should suggest using Supabase or Firebase integrations.
@@ -209,14 +278,47 @@ export async function generateCodeResponseStream(
     emojiLevel?: string;
     customRules?: string;
     activeModel?: 'ionic' | 'iconic';
-  }
+  },
+  envVars?: { name: string, value: string }[],
+  spaceInfo?: { spaceId?: string, spaceName?: string }
 ) {
   const contents = [...history];
   
   let contextPrompt = prompt;
   if (files && files.length > 0) {
     const filesContext = files.map(f => `File: ${f.name}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
-    contextPrompt = `Current Space Files:\n${filesContext}\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo?.spaceName || 'Active Workspace'}"]\nCurrent Workspace Files:\n${filesContext}\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+  } else if (spaceInfo?.spaceName) {
+    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo.spaceName}"]\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+  }
+
+  // Extract available space secrets
+  let secretNames: string[] = [];
+  if (envVars && envVars.length > 0) {
+    secretNames = envVars.map(v => v.name).filter(Boolean);
+  } else if (files) {
+    const envFile = files.find(f => f.name === '.env.json');
+    if (envFile) {
+      try {
+        const parsed = JSON.parse(envFile.content);
+        if (Array.isArray(parsed)) {
+          secretNames = parsed.map((p: any) => p.name).filter(Boolean);
+        }
+      } catch (e) {}
+    }
+  }
+
+  if (secretNames.length > 0) {
+    contextPrompt += `\n\n[INBUILT ENVIRONMENT & SECRETS READY IN RUNTIME]:
+The active space has these environment variables/secrets configured and auto-injected:
+${secretNames.map(s => `• ${s} -> accessible via: process.env.${s} || window.ENV?.${s} || window.getSecret('${s}')`).join('\n')}
+
+MANDATORY CODING DIRECTIVE:
+When writing or updating JavaScript code that uses these keys or APIs, ALWAYS call them via 'process.env.VARIABLE_NAME' or 'window.getSecret("VARIABLE_NAME")'.
+DO NOT leave placeholder strings or empty values. The runtime injects these values directly.`;
+  } else {
+    contextPrompt += `\n\n[INBUILT ENVIRONMENT CALLING CONVENTION]:
+Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gemini, Supabase, OpenAI, Weather APIs, Stripe), ALWAYS access them via 'process.env.KEY_NAME', 'window.ENV?.KEY_NAME', or 'window.getSecret("KEY_NAME")' so the user can easily supply them in the Environment & Secrets tab.`;
   }
 
   if (images && images.length > 0) {
@@ -236,17 +338,75 @@ export async function generateCodeResponseStream(
   }
   
   contents.push({ role: "user", parts: userParts });
-  const ai = getAI();
+  const systemInstruction = getSystemInstruction(settings);
 
-  const response = await ai.models.generateContentStream({
-    model: "gemini-3-flash-preview",
-    contents,
-    config: {
-      systemInstruction: getSystemInstruction(settings),
+  // 1. Try client-side SDK first if a client key exists
+  const ai = getAI();
+  if (ai) {
+    try {
+      const response = await ai.models.generateContentStream({
+        model: "gemini-3-flash-preview",
+        contents,
+        config: {
+          systemInstruction,
+        },
+      });
+      return response;
+    } catch (clientErr: any) {
+      console.warn("Client-side Gemini call failed, trying server-side proxy...", clientErr);
+    }
+  }
+
+  // 2. Server-side streaming fallback
+  const firstKey = getEffectiveApiKeys()[0] || '';
+  const serverRes = await fetch('/api/gemini/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(firstKey ? { 'x-gemini-key': firstKey } : {})
     },
+    body: JSON.stringify({
+      contents,
+      systemInstruction,
+      model: "gemini-3-flash-preview"
+    })
   });
 
-  return response;
+  if (!serverRes.ok) {
+    const errData = await serverRes.json().catch(() => ({}));
+    throw new Error(errData.error || `Server returned ${serverRes.status}: Failed to generate AI response. Please check your API key in Secrets & Environment.`);
+  }
+
+  // Create an async iterable matching the GoogleGenAI stream response format
+  async function* sseIterator() {
+    const reader = serverRes.body?.getReader();
+    if (!reader) return;
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const dataStr = line.replace('data: ', '').trim();
+          if (dataStr === '[DONE]') return;
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (parsed.text) {
+              yield { text: parsed.text };
+            }
+          } catch (e) {}
+        }
+      }
+    }
+  }
+
+  return sseIterator();
 }
 
 export async function generateCodeResponse(
@@ -262,14 +422,47 @@ export async function generateCodeResponse(
     emojiLevel?: string;
     customRules?: string;
     activeModel?: 'ionic' | 'iconic';
-  }
+  },
+  envVars?: { name: string, value: string }[],
+  spaceInfo?: { spaceId?: string, spaceName?: string }
 ) {
   const contents = [...history];
   
   let contextPrompt = prompt;
   if (files && files.length > 0) {
     const filesContext = files.map(f => `File: ${f.name}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
-    contextPrompt = `Current Space Files:\n${filesContext}\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo?.spaceName || 'Active Workspace'}"]\nCurrent Workspace Files:\n${filesContext}\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+  } else if (spaceInfo?.spaceName) {
+    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo.spaceName}"]\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+  }
+
+  // Extract available space secrets
+  let secretNames: string[] = [];
+  if (envVars && envVars.length > 0) {
+    secretNames = envVars.map(v => v.name).filter(Boolean);
+  } else if (files) {
+    const envFile = files.find(f => f.name === '.env.json');
+    if (envFile) {
+      try {
+        const parsed = JSON.parse(envFile.content);
+        if (Array.isArray(parsed)) {
+          secretNames = parsed.map((p: any) => p.name).filter(Boolean);
+        }
+      } catch (e) {}
+    }
+  }
+
+  if (secretNames.length > 0) {
+    contextPrompt += `\n\n[INBUILT ENVIRONMENT & SECRETS READY IN RUNTIME]:
+The active space has these environment variables/secrets configured and auto-injected:
+${secretNames.map(s => `• ${s} -> accessible via: process.env.${s} || window.ENV?.${s} || window.getSecret('${s}')`).join('\n')}
+
+MANDATORY CODING DIRECTIVE:
+When writing or updating JavaScript code that uses these keys or APIs, ALWAYS call them via 'process.env.VARIABLE_NAME' or 'window.getSecret("VARIABLE_NAME")'.
+DO NOT leave placeholder strings or empty values. The runtime injects these values directly.`;
+  } else {
+    contextPrompt += `\n\n[INBUILT ENVIRONMENT CALLING CONVENTION]:
+Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gemini, Supabase, OpenAI, Weather APIs, Stripe), ALWAYS access them via 'process.env.KEY_NAME', 'window.ENV?.KEY_NAME', or 'window.getSecret("KEY_NAME")' so the user can easily supply them in the Environment & Secrets tab.`;
   }
 
   if (images && images.length > 0) {
@@ -289,15 +482,43 @@ export async function generateCodeResponse(
   }
   
   contents.push({ role: "user", parts: userParts });
-  const ai = getAI();
+  const systemInstruction = getSystemInstruction(settings);
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents,
-    config: {
-      systemInstruction: getSystemInstruction(settings),
+  // 1. Try client SDK first
+  const ai = getAI();
+  if (ai) {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents,
+        config: {
+          systemInstruction,
+        },
+      });
+      return response.text;
+    } catch (clientErr: any) {
+      console.warn("Client Gemini direct call failed, falling back to server...", clientErr);
+    }
+  }
+
+  // 2. Server fallback
+  const firstKey = getEffectiveApiKeys()[0] || '';
+  const serverRes = await fetch('/api/gemini/generate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(firstKey ? { 'x-gemini-key': firstKey } : {})
     },
+    body: JSON.stringify({
+      contents,
+      systemInstruction,
+      model: "gemini-3-flash-preview"
+    })
   });
 
-  return response.text;
+  const data = await serverRes.json();
+  if (!serverRes.ok) {
+    throw new Error(data.error || "Failed to generate AI response. Please ensure a valid API key is configured.");
+  }
+  return data.text;
 }

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Globe, 
   Zap, 
@@ -37,29 +37,56 @@ export default function IntegrationsPage({
   setConfiguringIntegration,
   onOpenGitHubModal,
 }: IntegrationsPageProps) {
+  const [formValues, setFormValues] = useState<Record<string, Record<string, string>>>({
+    gemini: {
+      'Gemini API Key': localStorage.getItem('gear_gemini_key') || import.meta.env.VITE_GEAR_API || ''
+    },
+    render: {
+      'Render API Key': localStorage.getItem('gear_render_key') || '',
+      'Service ID': localStorage.getItem('gear_render_service_id') || ''
+    }
+  });
+
+  // Check connected state on mount
+  useEffect(() => {
+    const connected = new Set(connectedIntegrations);
+    connected.add('lucide');
+    connected.add('tailwind');
+    if (localStorage.getItem('gear_gemini_key') || import.meta.env.VITE_GEAR_API) {
+      connected.add('gemini');
+    }
+    if (localStorage.getItem('gear_render_key')) {
+      connected.add('render');
+    }
+    if (localStorage.getItem('gear_github_token')) {
+      connected.add('github');
+    }
+    setConnectedIntegrations(Array.from(connected));
+  }, []);
+
   const integrations = {
     builtin: [
       { 
-        id: 'render', 
-        name: 'Render', 
-        desc: 'Deploy your spaces directly to Render.', 
-        icon: <Globe className="w-5 h-5 text-white" />, 
+        id: 'gemini', 
+        name: 'Gemini AI', 
+        desc: 'Power your app and AI assistant with Google Gemini AI models.', 
+        icon: <Zap className="w-5 h-5 text-white" />, 
         fields: [
-          { label: 'Render API Key', value: '' },
-          { label: 'Service ID', value: '' }
+          { label: 'Gemini API Key', key: 'Gemini API Key', placeholder: 'Enter AIzaSy... API key' }
         ] 
       },
       { 
-        id: 'gemini', 
-        name: 'Gemini AI', 
-        desc: 'Power your app with the latest Google AI models.', 
-        icon: <Zap className="w-5 h-5 text-white" />, 
+        id: 'render', 
+        name: 'Render', 
+        desc: 'Deploy your spaces and full-stack containers directly to Render.', 
+        icon: <Globe className="w-5 h-5 text-white" />, 
         fields: [
-          { label: 'Gemini API Key', value: import.meta.env.VITE_GEAR_API || '' }
+          { label: 'Render API Key', key: 'Render API Key', placeholder: 'Enter rnd_... API token' },
+          { label: 'Service ID', key: 'Service ID', placeholder: 'Optional Service ID' }
         ] 
       },
-      { id: 'lucide', name: 'Lucide Icons', desc: 'Access 1000+ beautiful icons out of the box.', icon: <PluginIcon className="w-5 h-5 text-white" /> },
-      { id: 'tailwind', name: 'Tailwind CSS', desc: 'Utility-first CSS framework for rapid UI development.', icon: <Layers className="w-5 h-5 text-white" /> }
+      { id: 'lucide', name: 'Lucide Icons', desc: 'Access 1000+ vector icons out of the box.', icon: <PluginIcon className="w-5 h-5 text-white" /> },
+      { id: 'tailwind', name: 'Tailwind CSS', desc: 'Utility-first CSS framework for rapid UI styling.', icon: <Layers className="w-5 h-5 text-white" /> }
     ],
     plugins: [
       { 
@@ -85,9 +112,36 @@ export default function IntegrationsPage({
     }
   };
 
+  const handleSaveIntegration = (id: string) => {
+    const values = formValues[id] || {};
+    if (id === 'gemini') {
+      const geminiKey = values['Gemini API Key']?.trim();
+      if (geminiKey) {
+        localStorage.setItem('gear_gemini_key', geminiKey);
+        localStorage.setItem('gear_api_key', geminiKey);
+      }
+    } else if (id === 'render') {
+      const renderKey = values['Render API Key']?.trim();
+      if (renderKey) {
+        localStorage.setItem('gear_render_key', renderKey);
+      }
+      const serviceId = values['Service ID']?.trim();
+      if (serviceId) {
+        localStorage.setItem('gear_render_service_id', serviceId);
+      }
+    }
+
+    if (!connectedIntegrations.includes(id)) {
+      setConnectedIntegrations(prev => [...prev, id]);
+    }
+    setConfiguringIntegration(null);
+  };
+
   const toggleIntegration = (id: string) => {
     if (connectedIntegrations.includes(id)) {
       setConnectedIntegrations(prev => prev.filter(i => i !== id));
+      if (id === 'gemini') localStorage.removeItem('gear_gemini_key');
+      if (id === 'render') localStorage.removeItem('gear_render_key');
     } else {
       setConnectedIntegrations(prev => [...prev, id]);
     }
@@ -226,16 +280,26 @@ export default function IntegrationsPage({
                             <label className="text-[10px] uppercase tracking-wider font-bold text-neutral-400">{field.label}</label>
                             <input 
                               type="password" 
-                              className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-white text-white"
-                              placeholder={`Enter your ${field.label}`}
-                              defaultValue={field.value}
+                              className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-white text-white font-mono"
+                              placeholder={field.placeholder || `Enter your ${field.label}`}
+                              value={formValues[item.id]?.[field.label] || ''}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setFormValues(prev => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    ...(prev[item.id] || {}),
+                                    [field.label]: val
+                                  }
+                                }));
+                              }}
                             />
                           </div>
                         ))}
                         <div className="flex gap-2 pt-2">
                           <button 
                             type="button"
-                            onClick={() => toggleIntegration(item.id)}
+                            onClick={() => handleSaveIntegration(item.id)}
                             className="flex-1 py-2 bg-white hover:bg-neutral-200 text-black rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Save & Connect

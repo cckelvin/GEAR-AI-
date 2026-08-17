@@ -363,10 +363,39 @@ export default function App() {
   const [activeFileIndex, setActiveFileIndex] = useState(0);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const currentSpaceRef = useRef<Space>(currentSpace);
+  useEffect(() => {
+    currentSpaceRef.current = currentSpace;
+  }, [currentSpace]);
 
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Load spaces from Supabase
+  // Initial load of spaces from localStorage (for immediate rendering and offline/guest persistence)
+  useEffect(() => {
+    try {
+      const storedSpacesStr = localStorage.getItem('gear_spaces_list');
+      const storedCurrentSpaceId = localStorage.getItem('gear_current_space_id');
+      if (storedSpacesStr) {
+        const storedSpaces: Space[] = JSON.parse(storedSpacesStr);
+        if (Array.isArray(storedSpaces) && storedSpaces.length > 0) {
+          setSpaces(storedSpaces);
+          const targetSpace = storedSpaces.find(s => s.id === storedCurrentSpaceId) || storedSpaces[0];
+          setCurrentSpace(targetSpace);
+          loadSpaceFiles(targetSpace.id);
+          loadSpaceMessages(targetSpace.id);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('Error reading local spaces list:', e);
+    }
+
+    // Default initial space if none exists
+    loadSpaceFiles(currentSpace.id);
+    loadSpaceMessages(currentSpace.id);
+  }, []);
+
+  // Load spaces from Supabase when user is authenticated
   useEffect(() => {
     if (!session?.user?.id) return;
 
@@ -379,7 +408,7 @@ export default function App() {
           .order('updated_at', { ascending: false });
 
         if (error) throw error;
-        if (data) {
+        if (data && data.length > 0) {
           const formattedSpaces: Space[] = data.map(s => ({
             id: s.id,
             name: s.name,
@@ -392,16 +421,23 @@ export default function App() {
             isPrivate: s.is_private
           }));
           setSpaces(formattedSpaces);
+          localStorage.setItem('gear_spaces_list', JSON.stringify(formattedSpaces));
           
-          // If no space is selected, select the first one
-          if (currentSpace.id === '0' && formattedSpaces.length > 0) {
+          // If no valid space is selected or current is '0', select the first one
+          const currentId = currentSpaceRef.current.id;
+          const matching = formattedSpaces.find(s => s.id === currentId);
+          if (matching) {
+            setCurrentSpace(matching);
+            loadSpaceFiles(matching.id);
+            loadSpaceMessages(matching.id);
+          } else {
             setCurrentSpace(formattedSpaces[0]);
             loadSpaceFiles(formattedSpaces[0].id);
             loadSpaceMessages(formattedSpaces[0].id);
           }
         }
       } catch (err) {
-        console.error('Error loading spaces:', err);
+        console.error('Error loading spaces from Supabase:', err);
       }
     };
 
@@ -409,97 +445,159 @@ export default function App() {
   }, [session]);
 
   const loadSpaceFiles = async (spaceId: string) => {
+    // 1. Immediately read local files for this specific space
+    let foundLocal = false;
     try {
-      const { data, error } = await supabase
-        .from('space_files')
-        .select('*')
-        .eq('space_id', spaceId);
-
-      if (error) throw error;
-      if (data && data.length > 0) {
-        const loadedFiles = data.map(f => ({ name: f.file_name, content: f.content }));
-        setFiles(loadedFiles);
-
-        // Look for .env.json inside loaded space files to restore environment variables
-        const envFile = loadedFiles.find(f => f.name === '.env.json');
-        if (envFile) {
-          try {
-            const parsed = JSON.parse(envFile.content);
-            if (Array.isArray(parsed)) {
-              setEnvVars(parsed);
-              localStorage.setItem(`gear_env_${spaceId}`, JSON.stringify(parsed));
-            }
-          } catch (e) {
-            console.error('Error parsing .env.json:', e);
-          }
-        } else {
-          const stored = localStorage.getItem(`gear_env_${spaceId}`);
-          if (stored) {
-            try {
-              setEnvVars(JSON.parse(stored));
-            } catch (e) {
-              setEnvVars([]);
-            }
-          } else {
-            setEnvVars([]);
-          }
+      const localFilesStr = localStorage.getItem(`gear_files_${spaceId}`);
+      if (localFilesStr) {
+        const localFiles: FileData[] = JSON.parse(localFilesStr);
+        if (Array.isArray(localFiles) && localFiles.length > 0) {
+          setFiles(localFiles);
+          foundLocal = true;
         }
-      } else {
-        // Space has no saved files yet - set a clean template
-        setFiles([
-          {
-            name: 'index.html',
-            content: `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>New Space</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4">\n  <div class="text-center space-y-4">\n    <h1 class="text-3xl font-bold text-indigo-400">Welcome</h1>\n    <p class="text-gray-400 text-sm">Start chatting with Gear AI to build your application.</p>\n  </div>\n</body>\n</html>`
-          }
-        ]);
+      }
+    } catch (e) {}
+
+    // Load space environment variables
+    const storedEnv = localStorage.getItem(`gear_env_${spaceId}`);
+    if (storedEnv) {
+      try {
+        setEnvVars(JSON.parse(storedEnv));
+      } catch (e) {
         setEnvVars([]);
       }
-    } catch (err) {
-      console.error('Error loading space files:', err);
-      setFiles([
+    } else {
+      setEnvVars([]);
+    }
+
+    // 2. Fetch from Supabase if authenticated
+    if (session?.user?.id && spaceId !== '0') {
+      try {
+        const { data, error } = await supabase
+          .from('space_files')
+          .select('*')
+          .eq('space_id', spaceId);
+
+        if (error) throw error;
+        if (data && data.length > 0) {
+          const loadedFiles = data.map(f => ({ name: f.file_name, content: f.content }));
+          setFiles(loadedFiles);
+          localStorage.setItem(`gear_files_${spaceId}`, JSON.stringify(loadedFiles));
+
+          // Check for .env.json
+          const envFile = loadedFiles.find(f => f.name === '.env.json');
+          if (envFile) {
+            try {
+              const parsed = JSON.parse(envFile.content);
+              if (Array.isArray(parsed)) {
+                setEnvVars(parsed);
+                localStorage.setItem(`gear_env_${spaceId}`, JSON.stringify(parsed));
+              }
+            } catch (e) {}
+          }
+          return;
+        }
+      } catch (err) {
+        console.error('Error loading space files from Supabase:', err);
+      }
+    }
+
+    // 3. If no files exist locally or remotely for this space, initialize default template
+    if (!foundLocal) {
+      const initialTemplate: FileData[] = [
         {
           name: 'index.html',
           content: `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>New Space</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4">\n  <div class="text-center space-y-4">\n    <h1 class="text-3xl font-bold text-indigo-400">Welcome</h1>\n    <p class="text-gray-400 text-sm">Start chatting with Gear AI to build your application.</p>\n  </div>\n</body>\n</html>`
         }
-      ]);
+      ];
+      setFiles(initialTemplate);
+      localStorage.setItem(`gear_files_${spaceId}`, JSON.stringify(initialTemplate));
     }
   };
 
   const loadSpaceMessages = async (spaceId: string) => {
+    // 1. Immediately reset messages & load from space-specific local storage
+    let foundLocal = false;
     try {
-      const { data, error } = await supabase
-        .from('space_messages')
-        .select('*')
-        .eq('space_id', spaceId)
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-      if (data && data.length > 0) {
-        setMessages(data.map(m => ({
-          id: m.id,
-          role: m.role as 'user' | 'ai',
-          text: m.text,
-          type: m.type as any,
-          status: m.status as any
-        })));
+      const localMsgsStr = localStorage.getItem(`gear_messages_${spaceId}`);
+      if (localMsgsStr) {
+        const localMsgs = JSON.parse(localMsgsStr);
+        if (Array.isArray(localMsgs)) {
+          setMessages(localMsgs);
+          foundLocal = true;
+        } else {
+          setMessages([]);
+        }
       } else {
         setMessages([]);
       }
-    } catch (err) {
-      console.error('Error loading space messages:', err);
+    } catch (e) {
       setMessages([]);
+    }
+
+    // 2. Fetch from Supabase if authenticated
+    if (session?.user?.id && spaceId !== '0') {
+      try {
+        const { data, error } = await supabase
+          .from('space_messages')
+          .select('*')
+          .eq('space_id', spaceId)
+          .order('created_at', { ascending: true });
+
+        if (error) throw error;
+        if (data && data.length > 0) {
+          const loadedMessages: Message[] = data.map(m => ({
+            id: m.id,
+            role: m.role as 'user' | 'ai',
+            text: m.text,
+            type: m.type as any,
+            status: m.status as any
+          }));
+          setMessages(loadedMessages);
+          localStorage.setItem(`gear_messages_${spaceId}`, JSON.stringify(loadedMessages));
+        } else if (!foundLocal) {
+          setMessages([]);
+        }
+      } catch (err) {
+        console.error('Error loading space messages from Supabase:', err);
+      }
     }
   };
 
   const handleSelectSpace = (space: Space) => {
+    // Save current space's messages and files locally before switching
+    if (currentSpaceRef.current.id) {
+      try {
+        localStorage.setItem(`gear_messages_${currentSpaceRef.current.id}`, JSON.stringify(messages));
+        localStorage.setItem(`gear_files_${currentSpaceRef.current.id}`, JSON.stringify(files));
+      } catch (e) {}
+    }
+
     setCurrentSpace(space);
-    setFiles([]);
-    setMessages([]);
     setCodingFiles({});
     localStorage.setItem('gear_current_space_id', space.id);
+
+    // Isolated loading for target space
     loadSpaceFiles(space.id);
     loadSpaceMessages(space.id);
   };
+
+  // Local storage auto-sync per space
+  useEffect(() => {
+    if (currentSpace?.id && files.length > 0) {
+      try {
+        localStorage.setItem(`gear_files_${currentSpace.id}`, JSON.stringify(files));
+      } catch (e) {}
+    }
+  }, [currentSpace?.id, files]);
+
+  useEffect(() => {
+    if (currentSpace?.id && messages.length > 0) {
+      try {
+        localStorage.setItem(`gear_messages_${currentSpace.id}`, JSON.stringify(messages));
+      } catch (e) {}
+    }
+  }, [currentSpace?.id, messages]);
 
   const syncSpaceToSupabase = async (space: Space, spaceFiles: FileData[], spaceMessages: Message[]) => {
     if (!session?.user?.id || space.id === '0') return;
@@ -574,6 +672,14 @@ export default function App() {
   const handleCreateSpace = async () => {
     if (!newSpaceName.trim()) return;
 
+    // Save previous space state
+    if (currentSpaceRef.current.id) {
+      try {
+        localStorage.setItem(`gear_messages_${currentSpaceRef.current.id}`, JSON.stringify(messages));
+        localStorage.setItem(`gear_files_${currentSpaceRef.current.id}`, JSON.stringify(files));
+      } catch (e) {}
+    }
+
     const newId = generateId();
     const newSpace: Space = {
       id: newId,
@@ -587,10 +693,17 @@ export default function App() {
       { name: 'index.html', content: '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>' + newSpaceName + '</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-gray-50 text-gray-900 font-sans">\n  <div id="app" class="p-8">\n    <h1 class="text-4xl font-black tracking-tighter mb-4">' + newSpaceName + '</h1>\n    <p class="text-gray-500">' + (newSpaceDescription || 'Welcome to your new Gear Studio space.') + '</p>\n  </div>\n</body>\n</html>' }
     ];
 
-    setSpaces([newSpace, ...spaces]);
+    const updatedSpaces = [newSpace, ...spaces];
+    setSpaces(updatedSpaces);
+    localStorage.setItem('gear_spaces_list', JSON.stringify(updatedSpaces));
+    localStorage.setItem('gear_current_space_id', newId);
+    localStorage.setItem(`gear_files_${newId}`, JSON.stringify(initialFiles));
+    localStorage.setItem(`gear_messages_${newId}`, JSON.stringify([]));
+
     setCurrentSpace(newSpace);
     setFiles(initialFiles);
     setMessages([]);
+    setEnvVars([]);
     setNewSpaceName('');
     setNewSpaceDescription('');
     setShowCreateSpaceModal(false);
@@ -608,7 +721,12 @@ export default function App() {
 
   const deleteSpace = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setSpaces(spaces.filter(s => s.id !== id));
+    const updatedSpaces = spaces.filter(s => s.id !== id);
+    setSpaces(updatedSpaces);
+    localStorage.setItem('gear_spaces_list', JSON.stringify(updatedSpaces));
+    localStorage.removeItem(`gear_messages_${id}`);
+    localStorage.removeItem(`gear_files_${id}`);
+    localStorage.removeItem(`gear_env_${id}`);
     
     if (session?.user?.id) {
       try {
@@ -619,7 +737,10 @@ export default function App() {
     }
 
     if (currentSpace.id === id) {
-      setCurrentSpace(spaces[0] || { id: '0', name: 'NO SPACE', updatedAt: '' });
+      const nextSpace = updatedSpaces[0] || { id: '0', name: 'NO SPACE', updatedAt: '' };
+      setCurrentSpace(nextSpace);
+      loadSpaceFiles(nextSpace.id);
+      loadSpaceMessages(nextSpace.id);
     }
   };
 
@@ -898,18 +1019,80 @@ export default function App() {
     const cssFiles = spaceFiles.filter(f => f.name.endsWith('.css'));
     const cssContent = cssFiles.map(f => `/* ${f.name} */\n${f.content}`).join('\n\n');
 
-    // Build environment variables object
+    // Build comprehensive environment variables object
     const envObj: Record<string, string> = {};
+    
+    // 1. Load from current space envVars state
     envVars.forEach(v => {
-      envObj[v.name] = v.value;
+      if (v && v.name) {
+        envObj[v.name] = v.value || '';
+      }
     });
+
+    // 2. Load from localStorage if present
+    if (currentSpace?.id && currentSpace.id !== '0') {
+      try {
+        const stored = localStorage.getItem(`gear_env_${currentSpace.id}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((item: any) => {
+              if (item && item.name) {
+                envObj[item.name] = item.value || '';
+              }
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 3. Also inspect .env.json file in space files
+    const envFile = spaceFiles.find(f => f.name === '.env.json');
+    if (envFile) {
+      try {
+        const parsed = JSON.parse(envFile.content);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((item: any) => {
+            if (item && item.name) {
+              envObj[item.name] = item.value || '';
+            }
+          });
+        }
+      } catch (e) {}
+    }
+
+    // 4. Default fallbacks if GEMINI_API_KEY is not defined but platform has a key
+    if (!envObj['GEMINI_API_KEY'] && !envObj['API_KEY']) {
+      const savedKey = localStorage.getItem('gear_gemini_key') || localStorage.getItem('gear_api_key') || (import.meta.env.VITE_GEAR_API as string) || (import.meta.env.VITE_GEMINI_API_KEY as string);
+      if (savedKey) {
+        envObj['GEMINI_API_KEY'] = savedKey;
+        envObj['API_KEY'] = savedKey;
+      }
+    }
+
+    // Strip redundant script tags from HTML that point to workspace files
+    const localFileNames = spaceFiles.map(f => f.name);
+    const cleanWorkspaceScriptTags = (contentStr: string) => {
+      let res = contentStr;
+      localFileNames.forEach(fn => {
+        const escaped = fn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`<script[^>]*src=['"](?:\\.\\/)?${escaped}['"][^>]*>[\\s\\S]*?<\\/script>`, 'gi');
+        res = res.replace(regex, '');
+      });
+      // Replace import.meta.env in inline HTML scripts
+      res = res.replace(/import\.meta\.env/g, '(window.importMetaEnv || window.process.env || window.ENV)');
+      return res;
+    };
+
+    headContent = cleanWorkspaceScriptTags(headContent);
+    bodyContent = cleanWorkspaceScriptTags(bodyContent);
 
     // Collect all JS files as modules
     const jsFiles = spaceFiles.filter(f => f.name.endsWith('.js') || f.name.endsWith('.ts') || f.name.endsWith('.tsx'));
     const scripts = jsFiles.map(f => {
       let content = f.content.replace(/import\s+.*?\s+from\s+['"].*?['"];?/g, '');
-      // Ensure import.meta.env gets rewritten to window.importMetaEnv
-      content = content.replace(/import\.meta\.env/g, 'window.importMetaEnv');
+      // Ensure import.meta.env and process.env get rewritten safely for the browser
+      content = content.replace(/import\.meta\.env/g, '(window.importMetaEnv || window.process.env || window.ENV)');
       return `
         <script type="module" data-filename="${f.name}">
           ${content}
@@ -925,9 +1108,52 @@ export default function App() {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <script>
             (function() {
+              var env = ${JSON.stringify(envObj)};
+              
+              // Polyfill process and process.env
               window.process = window.process || {};
-              window.process.env = ${JSON.stringify(envObj)};
-              window.importMetaEnv = ${JSON.stringify(envObj)};
+              window.process.env = Object.assign({}, window.process.env || {}, env);
+              globalThis.process = window.process;
+              
+              // Polyfill importMetaEnv
+              window.importMetaEnv = Object.assign({}, window.importMetaEnv || {}, env);
+              globalThis.importMetaEnv = window.importMetaEnv;
+              
+              // Polyfill window.ENV and window.__ENV__
+              window.ENV = Object.assign({}, window.ENV || {}, env);
+              window.__ENV__ = Object.assign({}, window.__ENV__ || {}, env);
+              globalThis.ENV = window.ENV;
+              globalThis.__ENV__ = window.__ENV__;
+              
+              // Universal secret getter helpers for project code
+              window.getSecret = function(name, fallback) {
+                if (!name) return '';
+                return (window.process?.env && window.process.env[name]) || window.ENV[name] || fallback || '';
+              };
+              window.getEnv = window.getSecret;
+              globalThis.getSecret = window.getSecret;
+              globalThis.getEnv = window.getEnv;
+              
+              // Directly expose keys onto global scope for quick access
+              var reserved = ['location', 'document', 'window', 'top', 'parent', 'self', 'length', 'name', 'status', 'origin', 'history', 'customElements'];
+              for (var k in env) {
+                if (k && !reserved.includes(k)) {
+                  try {
+                    window[k] = env[k];
+                    globalThis[k] = env[k];
+                  } catch(e) {}
+                }
+              }
+              
+              // Log active secrets to preview console
+              var secretKeys = Object.keys(env);
+              if (secretKeys.length > 0) {
+                console.log('⚡ [Gear Live Environment] ' + secretKeys.length + ' secret(s) injected into runtime:', secretKeys);
+              }
+              
+              try {
+                window.dispatchEvent(new CustomEvent('gear:env-ready', { detail: env }));
+              } catch(e) {}
             })();
           </script>
           <script src="https://cdn.tailwindcss.com"></script>
@@ -1238,7 +1464,7 @@ export default function App() {
       setTimeout(() => setIsSyncing(false), 800);
     }, 1000);
     return () => clearTimeout(timer);
-  }, [files]);
+  }, [files, envVars, currentSpace?.id]);
 
   const handleAddToCart = (domain: any) => {
     if (!cart.some(item => item.domain === domain.domain)) {
@@ -1565,7 +1791,18 @@ export default function App() {
         return acc;
       }, []);
       
-      const stream = await generateCodeResponseStream(currentInput, history, currentImages, files, { ...aiSettings, activeModel });
+      const targetSpaceId = currentSpace.id;
+      const targetSpaceName = currentSpace.name;
+
+      const stream = await generateCodeResponseStream(
+        currentInput, 
+        history, 
+        currentImages, 
+        files, 
+        { ...aiSettings, activeModel }, 
+        envVars,
+        { spaceId: targetSpaceId, spaceName: targetSpaceName }
+      );
       let fullResponse = "";
       
       // Add initial AI message
@@ -1620,6 +1857,10 @@ export default function App() {
                 next.push(update);
               }
             });
+            // Update local storage for active space immediately
+            try {
+              localStorage.setItem(`gear_files_${targetSpaceId}`, JSON.stringify(next));
+            } catch (e) {}
             return next;
           });
           
@@ -1635,33 +1876,48 @@ export default function App() {
         return next;
       });
 
+      let chatText = fullResponse.replace(/```[\s\S]*?```/g, '').trim();
+      if (!chatText) chatText = "I've updated the space files in the editor.";
+
+      const updatedMessages = messages.concat([
+        userMessage,
+        { id: aiMessageId, role: 'ai', text: chatText, status: 'done' }
+      ]);
+
+      setMessages(prev => prev.map(m => 
+        m.id === aiMessageId ? { ...m, text: chatText, status: 'done' } : m
+      ));
+
       // Final processing for space name
       if (currentSpace.id === '0' && messages.length === 0) {
         const generatedName = currentInput.toUpperCase().slice(0, 20);
         const slug = generatedName.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-' + Math.random().toString(36).substring(2, 6);
         const deploymentUrl = `https://gearstudio.space/${slug}`;
+        const newSpaceId = generateId();
         const newSpace: Space = { 
           ...currentSpace, 
           name: generatedName, 
-          id: generateId(), 
+          id: newSpaceId, 
           deploymentUrl,
           status: 'draft'
         };
         setCurrentSpace(newSpace);
-        setSpaces(prev => [newSpace, ...prev]);
+        const nextSpaces = [newSpace, ...spaces];
+        setSpaces(nextSpaces);
+        localStorage.setItem('gear_spaces_list', JSON.stringify(nextSpaces));
+        localStorage.setItem('gear_current_space_id', newSpaceId);
+        localStorage.setItem(`gear_files_${newSpaceId}`, JSON.stringify(files));
+        localStorage.setItem(`gear_messages_${newSpaceId}`, JSON.stringify(updatedMessages));
+
         if (session?.user?.id) {
-          await syncSpaceToSupabase(newSpace, files, messages);
+          await syncSpaceToSupabase(newSpace, files, updatedMessages);
         }
-      } else if (currentSpace.id !== '0' && session?.user?.id) {
-        await syncSpaceToSupabase(currentSpace, files, messages);
+      } else if (currentSpace.id !== '0') {
+        localStorage.setItem(`gear_messages_${currentSpace.id}`, JSON.stringify(updatedMessages));
+        if (session?.user?.id) {
+          await syncSpaceToSupabase(currentSpace, files, updatedMessages);
+        }
       }
-
-      let chatText = fullResponse.replace(/```[\s\S]*?```/g, '').trim();
-      if (!chatText) chatText = "I've updated the space files in the editor.";
-
-      setMessages(prev => prev.map(m => 
-        m.id === aiMessageId ? { ...m, text: chatText, status: 'done' } : m
-      ));
 
       if (session?.user?.id) {
         await logUsageToSupabase('gemini-3-flash-preview');
