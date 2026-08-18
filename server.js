@@ -18,6 +18,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Environment Variables & Secrets
 const API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || process.env.VITE_GEAR_API || '';
+const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || '';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 const VERCEL_TOKEN = process.env.VERCEL_TOKEN || '';
@@ -131,6 +132,172 @@ app.post('/api/gemini/stream', async (req, res) => {
   }
 });
 
+// POST /api/groq/stream - Server-side SSE Groq streaming proxy (Open GPT OSS 120B / Gearbox)
+app.post('/api/groq/stream', async (req, res) => {
+  const { messages, model, systemInstruction } = req.body;
+  const effectiveKey = req.headers['x-groq-key'] || GROQ_API_KEY;
+
+  if (!effectiveKey) {
+    return res.status(500).json({ 
+      error: "No Groq API key found. Please add your GROQ_API_KEY in Secrets & Environment or Settings." 
+    });
+  }
+
+  const requestedModel = model || "openai/gpt-oss-120b";
+  const fallbackModels = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"];
+
+  // Format messages
+  let formattedMessages = [];
+  if (systemInstruction) {
+    formattedMessages.push({ role: 'system', content: systemInstruction });
+  }
+  if (Array.isArray(messages)) {
+    formattedMessages.push(...messages);
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const tryStreamWithModel = async (modelToUse) => {
+    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${effectiveKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: modelToUse,
+        messages: formattedMessages,
+        stream: true,
+        temperature: 0.2
+      })
+    });
+
+    if (!groqRes.ok) {
+      const err = await groqRes.json().catch(() => ({}));
+      throw new Error(err.error?.message || `Groq responded with HTTP ${groqRes.status}`);
+    }
+
+    return groqRes;
+  };
+
+  try {
+    let groqRes = null;
+    let usedModel = requestedModel;
+
+    try {
+      groqRes = await tryStreamWithModel(requestedModel);
+    } catch (primaryErr) {
+      console.warn(`Primary Groq model ${requestedModel} failed:`, primaryErr.message);
+      // Try fallback models
+      for (const fallback of fallbackModels) {
+        if (fallback === requestedModel) continue;
+        try {
+          console.log(`Attempting fallback Groq model: ${fallback}`);
+          groqRes = await tryStreamWithModel(fallback);
+          usedModel = fallback;
+          break;
+        } catch (fallbackErr) {
+          console.warn(`Fallback Groq model ${fallback} failed:`, fallbackErr.message);
+        }
+      }
+      if (!groqRes) throw primaryErr;
+    }
+
+    const reader = groqRes.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data:')) continue;
+        const dataStr = trimmed.replace(/^data:\s*/, '');
+        if (dataStr === '[DONE]') {
+          res.write(`data: [DONE]\n\n`);
+          res.end();
+          return;
+        }
+        try {
+          const parsed = JSON.parse(dataStr);
+          const delta = parsed.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
+          }
+        } catch (e) {}
+      }
+    }
+
+    res.write(`data: [DONE]\n\n`);
+    res.end();
+  } catch (error) {
+    console.error("Groq Stream Error:", error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message || "Failed to stream content from Groq" });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+// POST /api/groq/generate - Non-streaming Groq proxy
+app.post('/api/groq/generate', async (req, res) => {
+  const { messages, model, systemInstruction } = req.body;
+  const effectiveKey = req.headers['x-groq-key'] || GROQ_API_KEY;
+
+  if (!effectiveKey) {
+    return res.status(500).json({ 
+      error: "No Groq API key found. Please configure your GROQ_API_KEY in Secrets & Environment." 
+    });
+  }
+
+  let formattedMessages = [];
+  if (systemInstruction) {
+    formattedMessages.push({ role: 'system', content: systemInstruction });
+  }
+  if (Array.isArray(messages)) {
+    formattedMessages.push(...messages);
+  }
+
+  const requestedModel = model || "openai/gpt-oss-120b";
+  const fallbackModels = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-70b-versatile"];
+
+  for (const mod of [requestedModel, ...fallbackModels.filter(m => m !== requestedModel)]) {
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${effectiveKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: mod,
+          messages: formattedMessages,
+          temperature: 0.2
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content || '';
+        return res.json({ text, model: mod });
+      }
+    } catch (e) {
+      console.warn(`Groq model ${mod} error:`, e.message);
+    }
+  }
+
+  res.status(500).json({ error: "Failed to generate response from Groq OSS models." });
+});
+
 // POST /api/secrets/test - Test secret/key connectivity
 app.post('/api/secrets/test', async (req, res) => {
   const { type, key, secret } = req.body;
@@ -140,6 +307,28 @@ app.post('/api/secrets/test', async (req, res) => {
   }
 
   try {
+    if (type === 'groq') {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${key}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{ role: 'user', content: 'Say "connected"' }],
+          max_tokens: 5
+        })
+      });
+
+      if (response.ok) {
+        return res.json({ success: true, message: "Groq API key verified! Gearbox (Open GPT OSS 120B) is ready." });
+      } else {
+        const err = await response.json().catch(() => ({}));
+        return res.status(400).json({ success: false, error: err.error?.message || `Groq responded with HTTP ${response.status}` });
+      }
+    }
+
     if (type === 'gemini' || type === 'ai') {
       const ai = new GoogleGenAI({ apiKey: key });
       const test = await ai.models.generateContent({

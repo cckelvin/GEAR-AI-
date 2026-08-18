@@ -18,6 +18,7 @@ interface EnvironmentVariablesPageProps {
 
 const COMMON_PRESETS = [
   { name: 'GEMINI_API_KEY', placeholder: 'AIzaSy...', type: 'ai' },
+  { name: 'GROQ_API_KEY', placeholder: 'gsk_...', type: 'groq' },
   { name: 'SUPABASE_URL', placeholder: 'https://xyz.supabase.co', type: 'supabase' },
   { name: 'SUPABASE_KEY', placeholder: 'eyJhbGciOi...', type: 'supabase' },
   { name: 'RENDER_API_KEY', placeholder: 'rnd_...', type: 'render' },
@@ -76,6 +77,8 @@ export default function EnvironmentVariablesPage({
     if (['GEMINI_API_KEY', 'API_KEY', 'GEAR_API', 'VITE_GEAR_API'].includes(formattedKey)) {
       localStorage.setItem('gear_gemini_key', newValue.trim());
       localStorage.setItem('gear_api_key', newValue.trim());
+    } else if (['GROQ_API_KEY', 'GROQ_KEY', 'VITE_GROQ_API_KEY'].includes(formattedKey)) {
+      localStorage.setItem('gear_groq_key', newValue.trim());
     }
     
     setNewKey('');
@@ -89,6 +92,8 @@ export default function EnvironmentVariablesPage({
     if (['GEMINI_API_KEY', 'API_KEY', 'GEAR_API'].includes(name)) {
       localStorage.removeItem('gear_gemini_key');
       localStorage.removeItem('gear_api_key');
+    } else if (['GROQ_API_KEY', 'GROQ_KEY', 'VITE_GROQ_API_KEY'].includes(name)) {
+      localStorage.removeItem('gear_groq_key');
     }
 
     showToast(`Deleted ${name}`);
@@ -105,7 +110,9 @@ export default function EnvironmentVariablesPage({
     setTestingId(v.id);
     try {
       let testType = 'generic';
-      if (v.name.includes('GEMINI') || v.name.includes('AI_KEY') || v.name === 'API_KEY') {
+      if (v.name.includes('GROQ')) {
+        testType = 'groq';
+      } else if (v.name.includes('GEMINI') || v.name.includes('AI_KEY') || v.name === 'API_KEY') {
         testType = 'gemini';
       } else if (v.name.includes('SPACESHIP')) {
         testType = 'spaceship';

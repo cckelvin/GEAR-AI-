@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Home, 
   Box, 
@@ -12,14 +12,20 @@ import {
   Sun, 
   Sparkles,
   Check,
-  Code
+  Code,
+  Key,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
-import { Space } from '../types';
+import { Space, AIModel } from '../types';
 
 interface SettingsPageProps {
   spaces: Space[];
-  activeModel: 'ionic' | 'iconic';
-  setActiveModel: (model: 'ionic' | 'iconic') => void;
+  activeModel: AIModel;
+  setActiveModel: (model: AIModel) => void;
   themeMode: 'dark' | 'light';
   setThemeMode: (theme: 'dark' | 'light') => void;
   currentPage: string;
@@ -37,8 +43,85 @@ export default function SettingsPage({
   setCurrentPage,
   onClose,
 }: SettingsPageProps) {
+  const [groqKey, setGroqKey] = useState('');
+  const [geminiKey, setGeminiKey] = useState('');
+  const [showGroqKey, setShowGroqKey] = useState(false);
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [testingGroq, setTestingGroq] = useState(false);
+  const [testingGemini, setTestingGemini] = useState(false);
+  const [groqStatus, setGroqStatus] = useState<{ success?: boolean; message?: string } | null>(null);
+  const [geminiStatus, setGeminiStatus] = useState<{ success?: boolean; message?: string } | null>(null);
 
-  const handleModelChange = (model: 'ionic' | 'iconic') => {
+  useEffect(() => {
+    const savedGroq = localStorage.getItem('gear_groq_key') || '';
+    const savedGemini = localStorage.getItem('gear_gemini_key') || localStorage.getItem('gear_api_key') || '';
+    setGroqKey(savedGroq);
+    setGeminiKey(savedGemini);
+  }, []);
+
+  const handleSaveGroq = async () => {
+    const trimmed = groqKey.trim();
+    if (!trimmed) {
+      localStorage.removeItem('gear_groq_key');
+      setGroqStatus({ success: true, message: 'Groq key cleared' });
+      return;
+    }
+
+    localStorage.setItem('gear_groq_key', trimmed);
+    setTestingGroq(true);
+    setGroqStatus(null);
+    try {
+      const res = await fetch('/api/secrets/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'groq', key: trimmed })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setGroqStatus({ success: true, message: data.message || 'Groq API Key valid! Open GPT OSS 120B ready.' });
+      } else {
+        setGroqStatus({ success: false, message: data.error || 'Invalid Groq API Key.' });
+      }
+    } catch (e: any) {
+      setGroqStatus({ success: false, message: e.message || 'Network check failed.' });
+    } finally {
+      setTestingGroq(false);
+    }
+  };
+
+  const handleSaveGemini = async () => {
+    const trimmed = geminiKey.trim();
+    if (!trimmed) {
+      localStorage.removeItem('gear_gemini_key');
+      localStorage.removeItem('gear_api_key');
+      setGeminiStatus({ success: true, message: 'Gemini key cleared' });
+      return;
+    }
+
+    localStorage.setItem('gear_gemini_key', trimmed);
+    localStorage.setItem('gear_api_key', trimmed);
+    setTestingGemini(true);
+    setGeminiStatus(null);
+    try {
+      const res = await fetch('/api/secrets/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'gemini', key: trimmed })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setGeminiStatus({ success: true, message: data.message || 'Gemini API Key valid!' });
+      } else {
+        setGeminiStatus({ success: false, message: data.error || 'Invalid Gemini API Key.' });
+      }
+    } catch (e: any) {
+      setGeminiStatus({ success: false, message: e.message || 'Network check failed.' });
+    } finally {
+      setTestingGemini(false);
+    }
+  };
+
+  const handleModelChange = (model: AIModel) => {
     setActiveModel(model);
     localStorage.setItem('gear_active_model', model);
   };
@@ -170,7 +253,7 @@ export default function SettingsPage({
               Configure which LLM architecture powers the workspace logic editor, code creations, block diagnostics, and autonomous bug fixing.
             </p>
 
-            <div className="grid grid-cols-2 gap-4 mt-2">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
               {/* Ionic Option */}
               <button
                 onClick={() => handleModelChange('ionic')}
@@ -183,7 +266,7 @@ export default function SettingsPage({
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <span className="p-1 px-2.5 bg-neutral-800 border border-neutral-700 rounded-full text-[9px] font-black text-neutral-300 uppercase tracking-widest">
-                      Standard
+                      Fast
                     </span>
                   </div>
                   {activeModel === 'ionic' && <Check className="w-4 h-4 text-white" />}
@@ -206,7 +289,7 @@ export default function SettingsPage({
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <span className="p-1 px-2.5 bg-neutral-800 border border-neutral-700 rounded-full text-[9px] font-black text-neutral-300 uppercase tracking-widest">
-                      Premium
+                      Architect
                     </span>
                   </div>
                   {activeModel === 'iconic' && <Check className="w-4 h-4 text-white" />}
@@ -216,6 +299,184 @@ export default function SettingsPage({
                   Deep-reasoning full-stack modeling. Perfect for complex APIs, architectural diagrams, multi-screen mapping, and error resolution.
                 </p>
               </button>
+
+              {/* Gearbox Option */}
+              <button
+                onClick={() => handleModelChange('gearbox')}
+                className={`p-5 rounded-2xl border text-left transition-all relative cursor-pointer ${
+                  activeModel === 'gearbox'
+                    ? 'bg-neutral-900 border-emerald-400 ring-1 ring-emerald-400/30'
+                    : 'bg-neutral-950 border-neutral-800 hover:bg-neutral-900'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1 px-2.5 bg-emerald-950/80 border border-emerald-600/50 rounded-full text-[9px] font-black text-emerald-300 uppercase tracking-widest">
+                      Groq • OSS 120B
+                    </span>
+                  </div>
+                  {activeModel === 'gearbox' && <Check className="w-4 h-4 text-emerald-400" />}
+                </div>
+                <h3 className="text-sm font-black tracking-tight text-white flex items-center gap-1.5">
+                  Gearbox Mode
+                </h3>
+                <p className="text-[10px] mt-1 text-neutral-400">
+                  Precision surgical editor. Pinpoints exact files & lines for fast corrections, additions, and folder creations without full retyping.
+                </p>
+              </button>
+            </div>
+          </div>
+
+          {/* Section: AI API Keys & Credentials */}
+          <div className="space-y-4 pt-2 border-t border-neutral-800">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xs font-black uppercase tracking-widest text-white flex items-center gap-2">
+                  <Key className="w-3.5 h-3.5 text-emerald-400" />
+                  AI API Keys & Model Credentials
+                </h2>
+                <p className="text-xs text-neutral-400 mt-1">
+                  Connect your personal API keys for inbuilt models. Keys are stored safely and encrypted in local session memory.
+                </p>
+              </div>
+            </div>
+
+            {/* Groq Key Input Card */}
+            <div id="groq-key-settings-card" className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-emerald-950 border border-emerald-700/60 flex items-center justify-center text-emerald-400 font-bold text-[11px]">
+                    G
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <span>Groq API Key (Open GPT OSS 120B)</span>
+                      <span className="px-1.5 py-0.2 bg-emerald-500/10 text-emerald-400 text-[8px] font-mono rounded font-bold border border-emerald-500/30">
+                        POWERS GEARBOX
+                      </span>
+                    </h3>
+                    <p className="text-[10px] text-neutral-400">
+                      Required for Gearbox surgical edits and Open GPT OSS 120B execution
+                    </p>
+                  </div>
+                </div>
+
+                {localStorage.getItem('gear_groq_key') && (
+                  <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Key Connected
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showGroqKey ? "text" : "password"}
+                    value={groqKey}
+                    onChange={(e) => setGroqKey(e.target.value)}
+                    placeholder="gsk_..."
+                    className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 pr-9 text-xs text-white font-mono placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowGroqKey(!showGroqKey)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-1"
+                  >
+                    {showGroqKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                <button
+                  id="save-groq-key-button"
+                  onClick={handleSaveGroq}
+                  disabled={testingGroq}
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all disabled:opacity-50 flex items-center gap-1.5 shrink-0 cursor-pointer shadow-lg shadow-emerald-500/10 active:scale-95"
+                >
+                  {testingGroq ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  <span>{testingGroq ? 'Testing...' : 'Save & Test'}</span>
+                </button>
+              </div>
+
+              {groqStatus && (
+                <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
+                  groqStatus.success 
+                    ? 'bg-emerald-950/50 border border-emerald-700/60 text-emerald-300' 
+                    : 'bg-red-950/50 border border-red-700/60 text-red-300'
+                }`}>
+                  {groqStatus.success ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-400" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-400" />}
+                  <span className="font-mono text-[11px]">{groqStatus.message}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Gemini Key Input Card */}
+            <div id="gemini-key-settings-card" className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-blue-950 border border-blue-700/60 flex items-center justify-center text-blue-400 font-bold text-[11px]">
+                    ✨
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <span>Gemini API Key</span>
+                      <span className="px-1.5 py-0.2 bg-blue-500/10 text-blue-400 text-[8px] font-mono rounded font-bold border border-blue-500/30">
+                        POWERS ICONIC & IONIC
+                      </span>
+                    </h3>
+                    <p className="text-[10px] text-neutral-400">
+                      Required for Iconic architect reasoning & Ionic fast compiler
+                    </p>
+                  </div>
+                </div>
+
+                {localStorage.getItem('gear_gemini_key') && (
+                  <span className="flex items-center gap-1 text-[10px] font-mono text-blue-400 font-bold bg-blue-950/60 px-2 py-0.5 rounded-full border border-blue-800">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Key Connected
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showGeminiKey ? "text" : "password"}
+                    value={geminiKey}
+                    onChange={(e) => setGeminiKey(e.target.value)}
+                    placeholder="AIzaSy..."
+                    className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 pr-9 text-xs text-white font-mono placeholder:text-neutral-600 focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowGeminiKey(!showGeminiKey)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-1"
+                  >
+                    {showGeminiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
+                <button
+                  id="save-gemini-key-button"
+                  onClick={handleSaveGemini}
+                  disabled={testingGemini}
+                  className="px-4 py-2 bg-white hover:bg-neutral-200 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all disabled:opacity-50 flex items-center gap-1.5 shrink-0 cursor-pointer shadow-lg active:scale-95"
+                >
+                  {testingGemini ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  <span>{testingGemini ? 'Testing...' : 'Save & Test'}</span>
+                </button>
+              </div>
+
+              {geminiStatus && (
+                <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
+                  geminiStatus.success 
+                    ? 'bg-blue-950/50 border border-blue-700/60 text-blue-300' 
+                    : 'bg-red-950/50 border border-red-700/60 text-red-300'
+                }`}>
+                  {geminiStatus.success ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-blue-400" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-400" />}
+                  <span className="font-mono text-[11px]">{geminiStatus.message}</span>
+                </div>
+              )}
             </div>
           </div>
 

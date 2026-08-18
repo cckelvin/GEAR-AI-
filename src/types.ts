@@ -26,3 +26,6 @@ export type FileData = {
   name: string;
   content: string;
 };
+
+export type AIModel = 'ionic' | 'iconic' | 'gearbox';
+

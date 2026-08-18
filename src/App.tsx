@@ -86,9 +86,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
-import { generateCodeResponse, generateCodeResponseStream } from './services/gemini';
+import { generateCodeResponse, generateCodeResponseStream, applySurgicalPatch } from './services/gemini';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
-import { Message, Space, FileData } from './types';
+import { Message, Space, FileData, AIModel } from './types';
 import LandingPage from './components/LandingPage';
 import AuthPage from './components/AuthPage';
 import IntegrationsPage from './components/IntegrationsPage';
@@ -140,8 +140,8 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLeftMenuOpen, setIsLeftMenuOpen] = useState(false);
   const [learningMode, setLearningMode] = useState(false);
-  const [activeModel, setActiveModel] = useState<'ionic' | 'iconic'>(() => {
-    return (localStorage.getItem('gear_active_model') as 'ionic' | 'iconic') || 'iconic';
+  const [activeModel, setActiveModel] = useState<AIModel>(() => {
+    return (localStorage.getItem('gear_active_model') as AIModel) || 'iconic';
   });
   const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('gear_theme') as 'dark' | 'light') || 'dark';
@@ -983,10 +983,14 @@ export default function App() {
   };
 
   const handleApplyCode = (fileName: string, content: string) => {
+    const isPatch = content.includes('<<<<<<< SEARCH') && content.includes('=======');
     const index = files.findIndex(f => f.name === fileName);
     if (index > -1) {
       const newFiles = [...files];
-      newFiles[index] = { ...newFiles[index], content: content.trim() };
+      const nextContent = isPatch 
+        ? applySurgicalPatch(newFiles[index].content, content.trim())
+        : content.trim();
+      newFiles[index] = { ...newFiles[index], content: nextContent };
       setFiles(newFiles);
       setActiveFileIndex(index);
     } else {
@@ -1825,25 +1829,33 @@ export default function App() {
           m.id === aiMessageId ? { ...m, text: currentChatText || "Generating..." } : m
         ));
 
-        // 2. Incremental File Parsing
+        // 2. Incremental File Parsing (Full files & Surgical Patches)
         const codeBlockRegex = /```(\w+)?(?::([a-zA-Z0-9._\-/]+))?\n([\s\S]*?)(?:```|$)/g;
-        const fileTagRegex = /FILE:\s*([a-zA-Z0-9._-]+)\n([\s\S]*?)(?=FILE:|$|```)/g;
+        const fileTagRegex = /FILE:\s*([a-zA-Z0-9._\-/]+)\n([\s\S]*?)(?=FILE:|$|```)/g;
         
-        let updates: { name: string, content: string }[] = [];
+        let updates: { name: string, content: string, isPatch?: boolean }[] = [];
         let lastFile = "";
 
         let blockMatch;
         while ((blockMatch = codeBlockRegex.exec(fullResponse)) !== null) {
-          if (blockMatch[2]) {
-            updates.push({ name: blockMatch[2], content: blockMatch[3].trim() });
-            lastFile = blockMatch[2];
+          const lang = blockMatch[1] || '';
+          const fileName = blockMatch[2];
+          const rawCode = blockMatch[3].trim();
+
+          if (fileName) {
+            const isPatch = lang === 'patch' || lang === 'diff' || (rawCode.includes('<<<<<<< SEARCH') && rawCode.includes('======='));
+            updates.push({ name: fileName, content: rawCode, isPatch });
+            lastFile = fileName;
           }
         }
 
         let tagMatch;
         while ((tagMatch = fileTagRegex.exec(fullResponse)) !== null) {
-          updates.push({ name: tagMatch[1].trim(), content: tagMatch[2].trim() });
-          lastFile = tagMatch[1].trim();
+          const fileName = tagMatch[1].trim();
+          const rawCode = tagMatch[2].trim();
+          const isPatch = rawCode.includes('<<<<<<< SEARCH') && rawCode.includes('=======');
+          updates.push({ name: fileName, content: rawCode, isPatch });
+          lastFile = fileName;
         }
 
         if (updates.length > 0) {
@@ -1852,9 +1864,15 @@ export default function App() {
             updates.forEach(update => {
               const idx = next.findIndex(f => f.name === update.name);
               if (idx > -1) {
-                next[idx] = { ...next[idx], content: update.content };
+                if (update.isPatch) {
+                  const patched = applySurgicalPatch(next[idx].content, update.content);
+                  next[idx] = { ...next[idx], content: patched };
+                } else {
+                  next[idx] = { ...next[idx], content: update.content };
+                }
               } else {
-                next.push(update);
+                // New file or subfolder file
+                next.push({ name: update.name, content: update.content });
               }
             });
             // Update local storage for active space immediately
@@ -3384,15 +3402,29 @@ export default function App() {
               {/* Model selection pill */}
               <div className="flex items-center">
                 <button 
+                  id="chat-active-model-pill"
                   onClick={() => {
-                    const nextModel = activeModel === 'ionic' ? 'iconic' : 'ionic';
+                    const modelCycle: AIModel[] = ['iconic', 'ionic', 'gearbox'];
+                    const currentIndex = modelCycle.indexOf(activeModel);
+                    const nextModel = modelCycle[(currentIndex + 1) % modelCycle.length];
                     setActiveModel(nextModel);
                     localStorage.setItem('gear_active_model', nextModel);
                   }}
-                  className="px-2 py-0.5 bg-[#161616] hover:bg-[#222] border border-[#333] hover:border-[#555] rounded-full text-[8px] font-black uppercase tracking-wider text-white transition-all flex items-center gap-1 shadow-sm cursor-pointer"
-                  title="Model Selection"
+                  className={`px-2.5 py-0.5 border rounded-full text-[8px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm cursor-pointer ${
+                    activeModel === 'gearbox'
+                      ? 'bg-emerald-950/80 border-emerald-600/60 text-emerald-300 hover:bg-emerald-900/80'
+                      : activeModel === 'ionic'
+                      ? 'bg-blue-950/80 border-blue-600/60 text-blue-300 hover:bg-blue-900/80'
+                      : 'bg-[#161616] hover:bg-[#222] border-[#333] hover:border-[#555] text-white'
+                  }`}
+                  title="Click to cycle active model: Iconic Gear (Architect) -> Ionic Gear (Fast) -> Gearbox (Groq Surgical OSS 120B)"
                 >
-                  <span>{activeModel === 'ionic' ? 'IONIC GEAR' : 'ICONIC GEAR'}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    activeModel === 'gearbox' ? 'bg-emerald-400 animate-pulse' : activeModel === 'ionic' ? 'bg-blue-400' : 'bg-white'
+                  }`} />
+                  <span>
+                    {activeModel === 'gearbox' ? 'GEARBOX (GROQ)' : activeModel === 'ionic' ? 'IONIC GEAR' : 'ICONIC GEAR'}
+                  </span>
                   <Settings className="w-2 h-2 text-neutral-400" />
                 </button>
               </div>
