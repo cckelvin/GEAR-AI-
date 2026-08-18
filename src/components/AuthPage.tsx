@@ -67,18 +67,6 @@ export default function AuthPage({
           </div>
         )}
 
-        {!isSupabaseConfigured && (
-          <div className="mb-6 p-4 bg-neutral-900 border border-neutral-700 rounded-xl flex flex-col gap-2 text-neutral-300 text-xs">
-            <div className="flex items-center gap-3 text-white">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span className="font-bold uppercase tracking-wider">Configuration Notice</span>
-            </div>
-            <p className="leading-relaxed text-neutral-400">
-              Supabase environment variables are optional. You can continue directly or set <strong>VITE_SUPABASE_URL</strong> and <strong>VITE_SUPABASE_ANON_KEY</strong>.
-            </p>
-          </div>
-        )}
-
         {authStep === 'signup' && (
           <form onSubmit={handleSignUp} className="space-y-4">
             <div className="space-y-1.5">
@@ -111,13 +99,13 @@ export default function AuthPage({
             </div>
             <button 
               type="submit"
-              disabled={isAuthLoading || !isSupabaseConfigured}
-              className="w-full bg-white hover:bg-neutral-200 disabled:opacity-50 text-black font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+              disabled={isAuthLoading}
+              className="w-full bg-white hover:bg-neutral-200 disabled:opacity-50 text-black font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
             >
               {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : 'Create Account'}
             </button>
             <p className="text-center text-xs text-neutral-400 mt-4">
-              Already have an account? <button type="button" onClick={() => setAuthStep('login')} className="text-white hover:underline cursor-pointer">Sign In</button>
+              Already have an account? <button type="button" onClick={() => setAuthStep('login')} className="text-white hover:underline cursor-pointer font-bold">Sign In</button>
             </p>
           </form>
         )}
@@ -137,8 +125,8 @@ export default function AuthPage({
             </div>
             <button 
               type="submit"
-              disabled={isAuthLoading || !isSupabaseConfigured}
-              className="w-full bg-white hover:bg-neutral-200 disabled:opacity-50 text-black font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+              disabled={isAuthLoading}
+              className="w-full bg-white hover:bg-neutral-200 disabled:opacity-50 text-black font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
             >
               {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : 'Verify Code'}
             </button>
@@ -184,33 +172,25 @@ export default function AuthPage({
             </div>
             <button 
               type="submit"
-              disabled={isAuthLoading || !isSupabaseConfigured}
-              className="w-full bg-white hover:bg-neutral-200 disabled:opacity-50 text-black font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+              disabled={isAuthLoading}
+              className="w-full bg-white hover:bg-neutral-200 disabled:opacity-50 text-black font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
             >
               {isAuthLoading ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : 'Sign In'}
             </button>
             <p className="text-center text-xs text-neutral-400 mt-4">
-              Don't have an account? <button type="button" onClick={() => setAuthStep('signup')} className="text-white hover:underline cursor-pointer">Sign Up</button>
+              Don't have an account? <button type="button" onClick={() => setAuthStep('signup')} className="text-white hover:underline cursor-pointer font-bold">Sign Up</button>
             </p>
           </form>
         )}
 
-        <div className="mt-8 pt-6 border-t border-neutral-800 flex items-center justify-between">
+        <div className="mt-8 pt-6 border-t border-neutral-800 flex items-center justify-center">
           <button 
             type="button"
             onClick={() => setCurrentPage('landing')}
-            className="text-xs text-neutral-400 hover:text-white transition-colors flex items-center gap-2 cursor-pointer"
+            className="text-xs text-neutral-400 hover:text-white transition-colors flex items-center gap-2 cursor-pointer font-medium"
           >
-            <ArrowLeft className="w-3 h-3" />
-            Back to Landing
-          </button>
-          <button 
-            type="button"
-            onClick={() => setCurrentPage('chat')}
-            className="text-xs text-white hover:underline transition-colors font-medium flex items-center gap-2 cursor-pointer"
-          >
-            Skip for now
-            <ChevronRight className="w-3 h-3" />
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to Landing Page
           </button>
         </div>
       </motion.div>

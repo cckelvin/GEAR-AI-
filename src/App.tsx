@@ -753,30 +753,91 @@ export default function App() {
   }, [messages]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
-    
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-    });
+    // 1. Try Supabase session if configured
+    if (isSupabaseConfigured) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          setSession(session);
+        }
+      });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        setSession(session);
+      });
 
-    return () => subscription.unsubscribe();
+      return () => subscription.unsubscribe();
+    } else {
+      // 2. Local session recovery when Supabase is not configured
+      try {
+        const stored = localStorage.getItem('gear_auth_session');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.user) {
+            setSession(parsed);
+          }
+        }
+      } catch (e) {}
+    }
   }, []);
+
+  // Enforce mandatory authentication: redirect unauthenticated users to auth unless on landing or view
+  useEffect(() => {
+    const publicPages = ['landing', 'auth', 'view'];
+    if (!session && !publicPages.includes(currentPage)) {
+      setAuthStep('signup');
+      setCurrentPage('auth');
+    }
+  }, [session, currentPage]);
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsAuthLoading(true);
     setAuthError(null);
     try {
-      const { error } = await supabase.auth.signUp({
-        email: authEmail,
-        password: authPassword,
-      });
-      if (error) throw error;
-      setAuthStep('otp');
+      if (isSupabaseConfigured) {
+        const { error, data } = await supabase.auth.signUp({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+        if (data?.session) {
+          setSession(data.session);
+          setCurrentPage('dashboard');
+        } else {
+          setAuthStep('otp');
+        }
+      } else {
+        if (!authEmail || !authPassword) {
+          throw new Error('Please enter a valid email and password');
+        }
+        if (authPassword.length < 6) {
+          throw new Error('Password must be at least 6 characters');
+        }
+        const userId = 'usr_' + Math.random().toString(36).substring(2, 11);
+        const username = authEmail.split('@')[0] || 'developer';
+        const newSession = {
+          user: {
+            id: userId,
+            email: authEmail,
+            user_metadata: { username }
+          }
+        };
+
+        const registeredStr = localStorage.getItem('gear_registered_users') || '[]';
+        let registered = [];
+        try { registered = JSON.parse(registeredStr); } catch (e) {}
+        if (!Array.isArray(registered)) registered = [];
+        const existing = registered.find((u: any) => u.email?.toLowerCase() === authEmail.toLowerCase());
+        if (existing) {
+          throw new Error('An account with this email already exists. Please sign in.');
+        }
+        registered.push({ id: userId, email: authEmail, password: authPassword, username, created_at: new Date().toISOString() });
+        localStorage.setItem('gear_registered_users', JSON.stringify(registered));
+        localStorage.setItem('gear_auth_session', JSON.stringify(newSession));
+        localStorage.setItem('gear_ai_user_name', username);
+        setSession(newSession);
+        setCurrentPage('dashboard');
+      }
     } catch (err: any) {
       setAuthError(err.message);
     } finally {
@@ -789,14 +850,31 @@ export default function App() {
     setIsAuthLoading(true);
     setAuthError(null);
     try {
-      const { error, data: { session } } = await supabase.auth.verifyOtp({
-        email: authEmail,
-        token: authOtp,
-        type: 'signup',
-      });
-      if (error) throw error;
-      setSession(session);
-      setCurrentPage('chat');
+      if (isSupabaseConfigured) {
+        const { error, data: { session } } = await supabase.auth.verifyOtp({
+          email: authEmail,
+          token: authOtp,
+          type: 'signup',
+        });
+        if (error) throw error;
+        setSession(session);
+        setCurrentPage('dashboard');
+      } else {
+        if (authOtp.length < 4) {
+          throw new Error('Please enter a valid verification code');
+        }
+        const username = authEmail.split('@')[0] || 'developer';
+        const newSession = {
+          user: {
+            id: 'usr_' + Math.random().toString(36).substring(2, 11),
+            email: authEmail,
+            user_metadata: { username }
+          }
+        };
+        localStorage.setItem('gear_auth_session', JSON.stringify(newSession));
+        setSession(newSession);
+        setCurrentPage('dashboard');
+      }
     } catch (err: any) {
       setAuthError(err.message);
     } finally {
@@ -809,12 +887,60 @@ export default function App() {
     setIsAuthLoading(true);
     setAuthError(null);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: authEmail,
-        password: authPassword,
-      });
-      if (error) throw error;
-      setCurrentPage('chat');
+      if (isSupabaseConfigured) {
+        const { error, data } = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+        if (data?.session) {
+          setSession(data.session);
+        }
+        setCurrentPage('dashboard');
+      } else {
+        if (!authEmail || !authPassword) {
+          throw new Error('Please enter your email and password');
+        }
+        const registeredStr = localStorage.getItem('gear_registered_users') || '[]';
+        let registered = [];
+        try { registered = JSON.parse(registeredStr); } catch (e) {}
+        if (!Array.isArray(registered)) registered = [];
+        const existing = registered.find((u: any) => u.email?.toLowerCase() === authEmail.toLowerCase());
+        if (existing) {
+          if (existing.password !== authPassword) {
+            throw new Error('Incorrect password. Please try again.');
+          }
+          const userSession = {
+            user: {
+              id: existing.id,
+              email: existing.email,
+              user_metadata: { username: existing.username || existing.email.split('@')[0] }
+            }
+          };
+          localStorage.setItem('gear_auth_session', JSON.stringify(userSession));
+          localStorage.setItem('gear_ai_user_name', existing.username || existing.email.split('@')[0]);
+          setSession(userSession);
+          setCurrentPage('dashboard');
+        } else {
+          // If first login with credentials, register account and log in
+          const userId = 'usr_' + Math.random().toString(36).substring(2, 11);
+          const username = authEmail.split('@')[0] || 'developer';
+          const newAccount = { id: userId, email: authEmail, password: authPassword, username, created_at: new Date().toISOString() };
+          registered.push(newAccount);
+          localStorage.setItem('gear_registered_users', JSON.stringify(registered));
+          const userSession = {
+            user: {
+              id: userId,
+              email: authEmail,
+              user_metadata: { username }
+            }
+          };
+          localStorage.setItem('gear_auth_session', JSON.stringify(userSession));
+          localStorage.setItem('gear_ai_user_name', username);
+          setSession(userSession);
+          setCurrentPage('dashboard');
+        }
+      }
     } catch (err: any) {
       setAuthError(err.message);
     } finally {
@@ -823,7 +949,12 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {}
+    }
+    localStorage.removeItem('gear_auth_session');
     setSession(null);
     setCurrentPage('landing');
   };
@@ -1998,59 +2129,6 @@ export default function App() {
     handleSendMessage();
   };
 
-  if (currentPage === 'settings') {
-    return (
-      <SettingsPage
-        spaces={spaces}
-        activeModel={activeModel}
-        setActiveModel={setActiveModel}
-        themeMode={themeMode}
-        setThemeMode={setThemeMode}
-        currentPage={currentPage}
-        setCurrentPage={setCurrentPage}
-        onClose={() => setCurrentPage('dashboard')}
-      />
-    );
-  }
-
-  if (currentPage === 'auth') {
-    return (
-      <AuthPage
-        authStep={authStep}
-        setAuthStep={setAuthStep}
-        authEmail={authEmail}
-        setAuthEmail={setAuthEmail}
-        authPassword={authPassword}
-        setAuthPassword={setAuthPassword}
-        authOtp={authOtp}
-        setAuthOtp={setAuthOtp}
-        authError={authError}
-        isAuthLoading={isAuthLoading}
-        isSupabaseConfigured={isSupabaseConfigured}
-        handleSignUp={handleSignUp}
-        handleVerifyOtp={handleVerifyOtp}
-        handleLogin={handleLogin}
-        setCurrentPage={setCurrentPage}
-      />
-    );
-  }
-
-  if (currentPage === 'integrations') {
-    return (
-      <IntegrationsPage
-        setCurrentPage={setCurrentPage}
-        showShelf={showShelf}
-        setShowShelf={setShowShelf}
-        connectedIntegrations={connectedIntegrations}
-        setConnectedIntegrations={setConnectedIntegrations}
-        integrationsTab={integrationsTab}
-        setIntegrationsTab={setIntegrationsTab}
-        configuringIntegration={configuringIntegration}
-        setConfiguringIntegration={setConfiguringIntegration}
-      />
-    );
-  }
-
   if (currentPage === 'landing') {
     return (
       <LandingPage
@@ -2113,6 +2191,60 @@ export default function App() {
           </div>
         )}
       </div>
+    );
+  }
+
+  // Mandatory Authentication: If user is not logged in, enforce AuthPage
+  if (!session || currentPage === 'auth') {
+    return (
+      <AuthPage
+        authStep={authStep}
+        setAuthStep={setAuthStep}
+        authEmail={authEmail}
+        setAuthEmail={setAuthEmail}
+        authPassword={authPassword}
+        setAuthPassword={setAuthPassword}
+        authOtp={authOtp}
+        setAuthOtp={setAuthOtp}
+        authError={authError}
+        isAuthLoading={isAuthLoading}
+        isSupabaseConfigured={isSupabaseConfigured}
+        handleSignUp={handleSignUp}
+        handleVerifyOtp={handleVerifyOtp}
+        handleLogin={handleLogin}
+        setCurrentPage={setCurrentPage}
+      />
+    );
+  }
+
+  if (currentPage === 'settings') {
+    return (
+      <SettingsPage
+        spaces={spaces}
+        activeModel={activeModel}
+        setActiveModel={setActiveModel}
+        themeMode={themeMode}
+        setThemeMode={setThemeMode}
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+        onClose={() => setCurrentPage('dashboard')}
+      />
+    );
+  }
+
+  if (currentPage === 'integrations') {
+    return (
+      <IntegrationsPage
+        setCurrentPage={setCurrentPage}
+        showShelf={showShelf}
+        setShowShelf={setShowShelf}
+        connectedIntegrations={connectedIntegrations}
+        setConnectedIntegrations={setConnectedIntegrations}
+        integrationsTab={integrationsTab}
+        setIntegrationsTab={setIntegrationsTab}
+        configuringIntegration={configuringIntegration}
+        setConfiguringIntegration={setConfiguringIntegration}
+      />
     );
   }
 
