@@ -1148,6 +1148,18 @@ export default function App() {
     setCurrentPage('editor');
   };
 
+  const handleOpenFile = (fileName: string) => {
+    const index = files.findIndex(f => f.name === fileName);
+    if (index > -1) {
+      setActiveFileIndex(index);
+    } else {
+      const newFiles = [...files, { name: fileName, content: '' }];
+      setFiles(newFiles);
+      setActiveFileIndex(newFiles.length - 1);
+    }
+    setCurrentPage('editor');
+  };
+
   const generateCombinedCode = (spaceFiles: FileData[]) => {
     const htmlFile = spaceFiles.find(f => f.name === 'index.html');
     let html = htmlFile?.content || '<div id="root"></div>';
@@ -1240,6 +1252,23 @@ export default function App() {
 
     // Collect all JS files as modules
     const jsFiles = spaceFiles.filter(f => f.name.endsWith('.js') || f.name.endsWith('.ts') || f.name.endsWith('.tsx'));
+    
+    // Construct native ES Module Import Map so separate files can import each other seamlessly
+    const importMapObj: { imports: Record<string, string> } = { imports: {} };
+    jsFiles.forEach(f => {
+      let content = f.content.replace(/import\.meta\.env/g, '(window.importMetaEnv || window.process.env || window.ENV)');
+      const dataUri = `data:text/javascript;charset=utf-8,${encodeURIComponent(content)}`;
+      importMapObj.imports[`./${f.name}`] = dataUri;
+      importMapObj.imports[`/${f.name}`] = dataUri;
+      importMapObj.imports[f.name] = dataUri;
+      if (f.name.startsWith('src/')) {
+        const withoutSrc = f.name.replace(/^src\//, '');
+        importMapObj.imports[`./${withoutSrc}`] = dataUri;
+        importMapObj.imports[withoutSrc] = dataUri;
+      }
+    });
+    const importMapScript = `<script type="importmap">${JSON.stringify(importMapObj)}</script>`;
+
     const scripts = jsFiles.map(f => {
       let content = f.content.replace(/import\s+.*?\s+from\s+['"].*?['"];?/g, '');
       // Ensure import.meta.env and process.env get rewritten safely for the browser
@@ -1569,6 +1598,7 @@ export default function App() {
               });
             })();
           </script>
+          ${importMapScript}
           ${headContent}
           <style>
             ${cssContent}
@@ -3452,6 +3482,7 @@ export default function App() {
                   message={message}
                   activeCodingFile={activeCodingFile}
                   onApplyCode={handleApplyCode}
+                  onOpenFile={handleOpenFile}
                 />
               );
             })}

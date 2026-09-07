@@ -225,11 +225,19 @@ Configure the output for the Gear Studio Preview. The current environment does n
 Core Directives:
 1. Tech Stack: ONLY use HTML, Tailwind CSS (via CDN), and Lucide Icons (via ESM.sh). DO NOT use React, Vite, or any complex build tools. Your output must be standalone HTML/JS that runs directly in a browser without a build step.
 2. Code-First Approach: When asked to build or modify something, prioritize generating code. Do not provide long explanations unless specifically asked.
-3. Editor-Centric: You code directly in the user's editor. Your primary output should be the code blocks that update the space files.
-4. Modularity & Nested Folders:
-   - Split spaces into logical files and subfolders (e.g., index.html, styles.css, main.js, src/components/navbar.js, src/utils/helpers.js).
-   - Use <script type="module" src="main.js"></script> in index.html to import logic.
-   - Use <link rel="stylesheet" href="styles.css"> for custom CSS.
+3. Editor-Centric & Multi-File Focus: You code directly into workspace files. The workspace automatically parses your code blocks and renders a sleek interactive File Grid for each file you touch.
+4. MANDATORY MULTI-FILE CODE SPLITTING DIRECTIVE (PUSH TO SEPARATE FILES):
+   - ABSOLUTELY DO NOT write monolithic single-file applications or cram all logic, styles, and markup into index.html or a single file.
+   - PUSH CODE INTO SEPARATE DEDICATED FILES: Break every feature and application down across distinct, focused files:
+     • index.html: Lean, semantic HTML skeleton containing root containers, CSS link tags, and <script type="module" src="main.js"></script>.
+     • styles.css: Custom animations, variables, and styling classes.
+     • main.js: App bootstrap, event wiring, and module orchestration importing components.
+     • src/components/*.js: Dedicated UI component modules (e.g. src/components/navbar.js, src/components/sidebar.js, src/components/hero.js, src/components/card.js, src/components/modal.js).
+     • src/utils/*.js: Utility functions, storage helpers, API fetchers (e.g. src/utils/storage.js, src/utils/api.js, src/utils/helpers.js).
+     • src/data/*.js: Initial state, mock data, configuration constants (e.g. src/data/initialData.js).
+   - When asked to build, expand, or modify any feature, always create and update the separate component and utility files rather than growing a single file.
+   - Every file must be output in its own labeled code block (e.g. \`\`\`javascript:src/components/navbar.js).
+   - In conversation text, explain the architecture concisely; the workspace UI displays each file in a dedicated File Grid.
 5. Standalone Browser-Ready Code:
    - ESM.sh Imports: Use https://esm.sh/ for any external libraries.
      Example: import { createIcons, icons } from 'https://esm.sh/lucide'
@@ -350,9 +358,9 @@ export async function generateCodeResponseStream(
   let contextPrompt = prompt;
   if (files && files.length > 0) {
     const filesContext = files.map(f => `File: ${f.name} (${f.content.split('\n').length} lines)\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
-    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo?.spaceName || 'Active Workspace'}"]\nTotal Workspace Files: ${files.length}\nFiles List: ${files.map(f => f.name).join(', ')}\n\nCurrent Workspace Content:\n${filesContext}\n\n[PERSISTENT MEMORY DIRECTIVE]: Preserve all existing working code, features, and structure. Apply additions or targeted modifications cleanly.\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo?.spaceName || 'Active Workspace'}"]\nTotal Workspace Files: ${files.length}\nFiles List: ${files.map(f => f.name).join(', ')}\n\nCurrent Workspace Content:\n${filesContext}\n\n[PERSISTENT MEMORY & MULTI-FILE ARCHITECTURE MANDATE]:\n• Preserve existing working code, features, and structure cleanly.\n• PUSH CODE INTO SEPARATE DEDICATED FILES: Split features into modular files (index.html, styles.css, main.js, src/components/*.js, src/utils/*.js). Never dump monolithic code into a single file.\n• Output each file in a labeled code block (\`\`\`language:path/to/file.ext).\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
   } else if (spaceInfo?.spaceName) {
-    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo.spaceName}"]\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo.spaceName}"]\n\n[MULTI-FILE ARCHITECTURE MANDATE]: PUSH CODE INTO SEPARATE FILES across index.html, styles.css, main.js, and modular files in src/components/ and src/utils/. Output each file in a labeled block.\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
   }
 
   // Extract available space secrets
@@ -515,9 +523,9 @@ export async function generateCodeResponse(
   let contextPrompt = prompt;
   if (files && files.length > 0) {
     const filesContext = files.map(f => `File: ${f.name} (${f.content.split('\n').length} lines)\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
-    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo?.spaceName || 'Active Workspace'}"]\nTotal Workspace Files: ${files.length}\nFiles List: ${files.map(f => f.name).join(', ')}\n\nCurrent Workspace Content:\n${filesContext}\n\n[PERSISTENT MEMORY DIRECTIVE]: Preserve all existing working code, features, and structure. Apply additions or targeted modifications cleanly.\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo?.spaceName || 'Active Workspace'}"]\nTotal Workspace Files: ${files.length}\nFiles List: ${files.map(f => f.name).join(', ')}\n\nCurrent Workspace Content:\n${filesContext}\n\n[PERSISTENT MEMORY & MULTI-FILE ARCHITECTURE MANDATE]:\n• Preserve existing working code, features, and structure cleanly.\n• PUSH CODE INTO SEPARATE DEDICATED FILES: Split features into modular files (index.html, styles.css, main.js, src/components/*.js, src/utils/*.js). Never dump monolithic code into a single file.\n• Output each file in a labeled code block (\`\`\`language:path/to/file.ext).\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
   } else if (spaceInfo?.spaceName) {
-    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo.spaceName}"]\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
+    contextPrompt = `[ACTIVE PROJECT CONTEXT - Space: "${spaceInfo.spaceName}"]\n\n[MULTI-FILE ARCHITECTURE MANDATE]: PUSH CODE INTO SEPARATE FILES across index.html, styles.css, main.js, and modular files in src/components/ and src/utils/. Output each file in a labeled block.\n\nUser Request: ${prompt || 'Analyze and build the requested application.'}`;
   }
 
   // Extract available space secrets
