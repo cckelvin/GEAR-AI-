@@ -107,6 +107,7 @@ import AccountPage from './components/AccountPage';
 import AiMessageItem from './components/AiMessageItem';
 import PhysicalBrushEditor, { InspectedElementData } from './components/PhysicalBrushEditor';
 import GitHubPushModal from './components/GitHubPushModal';
+import { InstallPopupNotification } from './components/InstallPopupNotification';
 import { LinkedRepoInfo } from './services/github';
 
 const generateId = () => {
@@ -4354,6 +4355,9 @@ export default function App() {
         </div>
       )}
     </AnimatePresence>
+      {/* PWA 5-second Install Notification Popup */}
+      <InstallPopupNotification />
+
       {/* GitHub Push & Update Modal */}
       <GitHubPushModal
         isOpen={showGitHubModal}
