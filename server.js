@@ -69,7 +69,7 @@ app.post('/api/gemini/generate', async (req, res) => {
 
   try {
     const ai = new GoogleGenAI({ apiKey: effectiveKey });
-    const selectedModel = model || "gemini-3-flash-preview";
+    const selectedModel = model || "gemini-2.5-flash";
     
     const response = await ai.models.generateContent({
       model: selectedModel,
@@ -99,7 +99,7 @@ app.post('/api/gemini/stream', async (req, res) => {
 
   try {
     const ai = new GoogleGenAI({ apiKey: effectiveKey });
-    const selectedModel = model || "gemini-3-flash-preview";
+    const selectedModel = model || "gemini-2.5-flash";
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -315,14 +315,14 @@ app.post('/api/secrets/test', async (req, res) => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
+          model: 'openai/gpt-oss-120b',
           messages: [{ role: 'user', content: 'Say "connected"' }],
           max_tokens: 5
         })
       });
 
       if (response.ok) {
-        return res.json({ success: true, message: "Groq API key verified! Gearbox (Open GPT OSS 120B) is ready." });
+        return res.json({ success: true, message: "Groq API key verified! openai/gpt-oss-120b is ready." });
       } else {
         const err = await response.json().catch(() => ({}));
         return res.status(400).json({ success: false, error: err.error?.message || `Groq responded with HTTP ${response.status}` });
@@ -332,7 +332,7 @@ app.post('/api/secrets/test', async (req, res) => {
     if (type === 'gemini' || type === 'ai') {
       const ai = new GoogleGenAI({ apiKey: key });
       const test = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash",
         contents: "Respond with the word: connected"
       });
       return res.json({ success: true, message: "Gemini API key is verified and operational!" });

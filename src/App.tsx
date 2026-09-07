@@ -140,9 +140,7 @@ export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLeftMenuOpen, setIsLeftMenuOpen] = useState(false);
   const [learningMode, setLearningMode] = useState(false);
-  const [activeModel, setActiveModel] = useState<AIModel>(() => {
-    return (localStorage.getItem('gear_active_model') as AIModel) || 'iconic';
-  });
+  const [activeModel, setActiveModel] = useState<AIModel>('iconic');
   const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('gear_theme') as 'dark' | 'light') || 'dark';
   });
@@ -215,7 +213,7 @@ export default function App() {
     }
   }, [session]);
 
-  const [showSplash, setShowSplash] = useState(true);
+  const [showSplash, setShowSplash] = useState(false);
   const [deploymentName, setDeploymentName] = useState('');
   const [isDeploying, setIsDeploying] = useState(false);
   const [showDeployModal, setShowDeployModal] = useState(false);
@@ -362,6 +360,18 @@ export default function App() {
   const [files, setFiles] = useState<FileData[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef<boolean>(true);
+  const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false);
+
+  const handleChatScroll = () => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    const isBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 70;
+    isAtBottomRef.current = isBottom;
+    setShowScrollBottom(!isBottom);
+  };
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const currentSpaceRef = useRef<Space>(currentSpace);
   useEffect(() => {
@@ -749,7 +759,13 @@ export default function App() {
   };
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    // Only auto-scroll down if user is already at the bottom of the conversation
+    if (isAtBottomRef.current && chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: 'auto'
+      });
+    }
   }, [messages]);
 
   useEffect(() => {
@@ -960,8 +976,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), 3500);
-    return () => clearTimeout(timer);
+    setShowSplash(false);
   }, []);
 
   useEffect(() => {
@@ -1592,13 +1607,10 @@ export default function App() {
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsSyncing(true);
-      const combined = generateCombinedCode(files);
-      setCombinedCode(combined);
-      setTimeout(() => setIsSyncing(false), 800);
-    }, 1000);
-    return () => clearTimeout(timer);
+    setIsSyncing(true);
+    const combined = generateCombinedCode(files);
+    setCombinedCode(combined);
+    setIsSyncing(false);
   }, [files, envVars, currentSpace?.id]);
 
   const handleAddToCart = (domain: any) => {
@@ -1907,6 +1919,14 @@ export default function App() {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    isAtBottomRef.current = true;
+    setShowScrollBottom(false);
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
     const currentInput = inputToUse;
     if (!overrideInput) setInputValue('');
     setImages([]); // Clear images after sending
@@ -1954,10 +1974,9 @@ export default function App() {
         
         fullResponse += chunkText;
         
-        // 1. Update Chat Text (filter out code blocks)
-        let currentChatText = fullResponse.replace(/```[\s\S]*?(?:```|$)/g, '').trim();
+        // Update Chat Text directly with live streaming response
         setMessages(prev => prev.map(m => 
-          m.id === aiMessageId ? { ...m, text: currentChatText || "Generating..." } : m
+          m.id === aiMessageId ? { ...m, text: fullResponse, status: 'generating' } : m
         ));
 
         // 2. Incremental File Parsing (Full files & Surgical Patches)
@@ -2025,16 +2044,13 @@ export default function App() {
         return next;
       });
 
-      let chatText = fullResponse.replace(/```[\s\S]*?```/g, '').trim();
-      if (!chatText) chatText = "I've updated the space files in the editor.";
-
       const updatedMessages = messages.concat([
         userMessage,
-        { id: aiMessageId, role: 'ai', text: chatText, status: 'done' }
+        { id: aiMessageId, role: 'ai', text: fullResponse, status: 'done' }
       ]);
 
       setMessages(prev => prev.map(m => 
-        m.id === aiMessageId ? { ...m, text: chatText, status: 'done' } : m
+        m.id === aiMessageId ? { ...m, text: fullResponse, status: 'done' } : m
       ));
 
       // Final processing for space name
@@ -2069,7 +2085,7 @@ export default function App() {
       }
 
       if (session?.user?.id) {
-        await logUsageToSupabase('gemini-3-flash-preview');
+        await logUsageToSupabase('iconic');
       }
 
     } catch (error: any) {
@@ -3422,7 +3438,11 @@ export default function App() {
             )}
           </AnimatePresence>
           
-          <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
+          <div 
+            ref={chatContainerRef}
+            onScroll={handleChatScroll}
+            className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar relative"
+          >
             {messages.map((message) => {
               const activeCodingFile = codingFiles[message.id];
               return (
@@ -3435,6 +3455,24 @@ export default function App() {
               );
             })}
             <div ref={chatEndRef} />
+
+            {showScrollBottom && (
+              <button
+                type="button"
+                onClick={() => {
+                  isAtBottomRef.current = true;
+                  setShowScrollBottom(false);
+                  chatContainerRef.current?.scrollTo({
+                    top: chatContainerRef.current.scrollHeight,
+                    behavior: 'smooth'
+                  });
+                }}
+                className="sticky bottom-2 ml-auto mr-2 px-3 py-1.5 bg-neutral-800/90 hover:bg-neutral-700 text-white text-[11px] font-mono rounded-full shadow-2xl border border-neutral-700 flex items-center gap-1.5 transition-all z-20 cursor-pointer backdrop-blur-md"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+                <span>Scroll to bottom</span>
+              </button>
+            )}
           </div>
 
           {/* Compact Input Toolbar Section */}
@@ -3531,34 +3569,16 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Model selection pill */}
+              {/* Active Model Indicator */}
               <div className="flex items-center">
-                <button 
+                <div 
                   id="chat-active-model-pill"
-                  onClick={() => {
-                    const modelCycle: AIModel[] = ['iconic', 'ionic', 'gearbox'];
-                    const currentIndex = modelCycle.indexOf(activeModel);
-                    const nextModel = modelCycle[(currentIndex + 1) % modelCycle.length];
-                    setActiveModel(nextModel);
-                    localStorage.setItem('gear_active_model', nextModel);
-                  }}
-                  className={`px-2.5 py-0.5 border rounded-full text-[8px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm cursor-pointer ${
-                    activeModel === 'gearbox'
-                      ? 'bg-emerald-950/80 border-emerald-600/60 text-emerald-300 hover:bg-emerald-900/80'
-                      : activeModel === 'ionic'
-                      ? 'bg-blue-950/80 border-blue-600/60 text-blue-300 hover:bg-blue-900/80'
-                      : 'bg-[#161616] hover:bg-[#222] border-[#333] hover:border-[#555] text-white'
-                  }`}
-                  title="Click to cycle active model: Iconic Gear (Architect) -> Ionic Gear (Fast) -> Gearbox (Groq Surgical OSS 120B)"
+                  className="px-2.5 py-0.5 border border-blue-500/50 bg-blue-950/80 rounded-full text-[8px] font-black uppercase tracking-wider text-blue-300 flex items-center gap-1.5 shadow-sm"
+                  title="Active Engine: Iconic Gear (Google AI Studio Gemini)"
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full ${
-                    activeModel === 'gearbox' ? 'bg-emerald-400 animate-pulse' : activeModel === 'ionic' ? 'bg-blue-400' : 'bg-white'
-                  }`} />
-                  <span>
-                    {activeModel === 'gearbox' ? 'GEARBOX (GROQ)' : activeModel === 'ionic' ? 'IONIC GEAR' : 'ICONIC GEAR'}
-                  </span>
-                  <Settings className="w-2 h-2 text-neutral-400" />
-                </button>
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                  <span>ICONIC GEAR • GOOGLE AI STUDIO</span>
+                </div>
               </div>
             </div>
           </div>

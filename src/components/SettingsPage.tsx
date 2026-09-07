@@ -246,84 +246,40 @@ export default function SettingsPage({
           {/* Section 1: Active Model */}
           <div className="space-y-4">
             <h2 className="text-xs font-black uppercase tracking-widest text-white flex items-center gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-white" />
-              Active AI Model
+              <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+              Active AI Engine
             </h2>
             <p className="text-xs text-neutral-400">
-              Configure which LLM architecture powers the workspace logic editor, code creations, block diagnostics, and autonomous bug fixing.
+              Workspace logic editor, code synthesis, and architectural modifications are powered exclusively by Iconic Gear in the style of Google AI Studio.
             </p>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
-              {/* Ionic Option */}
-              <button
-                onClick={() => handleModelChange('ionic')}
-                className={`p-5 rounded-2xl border text-left transition-all relative cursor-pointer ${
-                  activeModel === 'ionic'
-                    ? 'bg-neutral-900 border-white ring-1 ring-white/30'
-                    : 'bg-neutral-950 border-neutral-800 hover:bg-neutral-900'
-                }`}
+            <div className="mt-2">
+              {/* Dedicated Iconic Gear Card */}
+              <div
+                className="p-5 rounded-2xl border bg-neutral-900 border-blue-500 ring-1 ring-blue-500/30 text-left relative"
               >
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="p-1 px-2.5 bg-neutral-800 border border-neutral-700 rounded-full text-[9px] font-black text-neutral-300 uppercase tracking-widest">
-                      Fast
+                    <span className="p-1 px-2.5 bg-blue-950/80 border border-blue-600/50 rounded-full text-[9px] font-black text-blue-300 uppercase tracking-widest flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                      Exclusive Engine
+                    </span>
+                    <span className="p-1 px-2 bg-neutral-800 border border-neutral-700 rounded-full text-[9px] font-mono text-neutral-300 uppercase tracking-wider">
+                      Google AI Studio Gemini
                     </span>
                   </div>
-                  {activeModel === 'ionic' && <Check className="w-4 h-4 text-white" />}
-                </div>
-                <h3 className="text-sm font-black tracking-tight text-white">Ionic Mode</h3>
-                <p className="text-[10px] mt-1 text-neutral-400">
-                  Ultra-fast, responsive logical outputs with strict token boundaries. Optimised for iterative code changes.
-                </p>
-              </button>
-
-              {/* Iconic Option */}
-              <button
-                onClick={() => handleModelChange('iconic')}
-                className={`p-5 rounded-2xl border text-left transition-all relative cursor-pointer ${
-                  activeModel === 'iconic'
-                    ? 'bg-neutral-900 border-white ring-1 ring-white/30'
-                    : 'bg-neutral-950 border-neutral-800 hover:bg-neutral-900'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="p-1 px-2.5 bg-neutral-800 border border-neutral-700 rounded-full text-[9px] font-black text-neutral-300 uppercase tracking-widest">
-                      Architect
-                    </span>
+                  <div className="flex items-center gap-1 text-blue-400 text-xs font-bold font-mono">
+                    <Check className="w-4 h-4 text-blue-400" />
+                    <span>Active</span>
                   </div>
-                  {activeModel === 'iconic' && <Check className="w-4 h-4 text-white" />}
-                </div>
-                <h3 className="text-sm font-black tracking-tight text-white">Iconic Mode</h3>
-                <p className="text-[10px] mt-1 text-neutral-400">
-                  Deep-reasoning full-stack modeling. Perfect for complex APIs, architectural diagrams, multi-screen mapping, and error resolution.
-                </p>
-              </button>
-
-              {/* Gearbox Option */}
-              <button
-                onClick={() => handleModelChange('gearbox')}
-                className={`p-5 rounded-2xl border text-left transition-all relative cursor-pointer ${
-                  activeModel === 'gearbox'
-                    ? 'bg-neutral-900 border-emerald-400 ring-1 ring-emerald-400/30'
-                    : 'bg-neutral-950 border-neutral-800 hover:bg-neutral-900'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="p-1 px-2.5 bg-emerald-950/80 border border-emerald-600/50 rounded-full text-[9px] font-black text-emerald-300 uppercase tracking-widest">
-                      Groq • OSS 120B
-                    </span>
-                  </div>
-                  {activeModel === 'gearbox' && <Check className="w-4 h-4 text-emerald-400" />}
                 </div>
                 <h3 className="text-sm font-black tracking-tight text-white flex items-center gap-1.5">
-                  Gearbox Mode
+                  Iconic Gear — Google AI Studio Engine
                 </h3>
-                <p className="text-[10px] mt-1 text-neutral-400">
-                  Precision surgical editor. Pinpoints exact files & lines for fast corrections, additions, and folder creations without full retyping.
+                <p className="text-xs mt-1.5 text-neutral-300 leading-relaxed">
+                  High-velocity software architect and code generation engine styled directly after Google AI Studio. Employs direct technical communication, complete code block generation, surgical patch matching, and zero artificial delays.
                 </p>
-              </button>
+              </div>
             </div>
           </div>
 
@@ -332,100 +288,31 @@ export default function SettingsPage({
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xs font-black uppercase tracking-widest text-white flex items-center gap-2">
-                  <Key className="w-3.5 h-3.5 text-emerald-400" />
-                  AI API Keys & Model Credentials
+                  <Key className="w-3.5 h-3.5 text-blue-400" />
+                  API Credentials
                 </h2>
                 <p className="text-xs text-neutral-400 mt-1">
-                  Connect your personal API keys for inbuilt models. Keys are stored safely and encrypted in local session memory.
+                  Connect your Gemini API key to power <code className="text-blue-400 font-mono">Iconic Gear</code>. Keys configured here or in Secrets & Environment are auto-injected.
                 </p>
               </div>
-            </div>
-
-            {/* Groq Key Input Card */}
-            <div id="groq-key-settings-card" className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-emerald-950 border border-emerald-700/60 flex items-center justify-center text-emerald-400 font-bold text-[11px]">
-                    G
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <span>Groq API Key (Open GPT OSS 120B)</span>
-                      <span className="px-1.5 py-0.2 bg-emerald-500/10 text-emerald-400 text-[8px] font-mono rounded font-bold border border-emerald-500/30">
-                        POWERS GEARBOX
-                      </span>
-                    </h3>
-                    <p className="text-[10px] text-neutral-400">
-                      Required for Gearbox surgical edits and Open GPT OSS 120B execution
-                    </p>
-                  </div>
-                </div>
-
-                {localStorage.getItem('gear_groq_key') && (
-                  <span className="flex items-center gap-1 text-[10px] font-mono text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800">
-                    <CheckCircle2 className="w-3 h-3" />
-                    Key Connected
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <input
-                    type={showGroqKey ? "text" : "password"}
-                    value={groqKey}
-                    onChange={(e) => setGroqKey(e.target.value)}
-                    placeholder="gsk_..."
-                    className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 pr-9 text-xs text-white font-mono placeholder:text-neutral-600 focus:outline-none focus:border-emerald-500 transition-colors"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowGroqKey(!showGroqKey)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white p-1"
-                  >
-                    {showGroqKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-
-                <button
-                  id="save-groq-key-button"
-                  onClick={handleSaveGroq}
-                  disabled={testingGroq}
-                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all disabled:opacity-50 flex items-center gap-1.5 shrink-0 cursor-pointer shadow-lg shadow-emerald-500/10 active:scale-95"
-                >
-                  {testingGroq ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                  <span>{testingGroq ? 'Testing...' : 'Save & Test'}</span>
-                </button>
-              </div>
-
-              {groqStatus && (
-                <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 ${
-                  groqStatus.success 
-                    ? 'bg-emerald-950/50 border border-emerald-700/60 text-emerald-300' 
-                    : 'bg-red-950/50 border border-red-700/60 text-red-300'
-                }`}>
-                  {groqStatus.success ? <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-400" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-400" />}
-                  <span className="font-mono text-[11px]">{groqStatus.message}</span>
-                </div>
-              )}
             </div>
 
             {/* Gemini Key Input Card */}
             <div id="gemini-key-settings-card" className="p-5 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-blue-950 border border-blue-700/60 flex items-center justify-center text-blue-400 font-bold text-[11px]">
+                  <div className="w-7 h-7 rounded-lg bg-blue-950 border border-blue-700/60 flex items-center justify-center text-blue-400 font-bold text-xs">
                     ✨
                   </div>
                   <div>
                     <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
                       <span>Gemini API Key</span>
-                      <span className="px-1.5 py-0.2 bg-blue-500/10 text-blue-400 text-[8px] font-mono rounded font-bold border border-blue-500/30">
-                        POWERS ICONIC & IONIC
+                      <span className="px-1.5 py-0.5 bg-blue-500/10 text-blue-400 text-[8px] font-mono rounded font-bold border border-blue-500/30">
+                        POWERS ICONIC GEAR
                       </span>
                     </h3>
                     <p className="text-[10px] text-neutral-400">
-                      Required for Iconic architect reasoning & Ionic fast compiler
+                      Required for streaming code generation and surgical patch workflows in Google AI Studio style
                     </p>
                   </div>
                 </div>
@@ -460,7 +347,7 @@ export default function SettingsPage({
                   id="save-gemini-key-button"
                   onClick={handleSaveGemini}
                   disabled={testingGemini}
-                  className="px-4 py-2 bg-white hover:bg-neutral-200 text-black font-black text-xs uppercase tracking-wider rounded-xl transition-all disabled:opacity-50 flex items-center gap-1.5 shrink-0 cursor-pointer shadow-lg active:scale-95"
+                  className="px-4 py-2 bg-blue-500 hover:bg-blue-400 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all disabled:opacity-50 flex items-center gap-1.5 shrink-0 cursor-pointer shadow-lg shadow-blue-500/10 active:scale-95"
                 >
                   {testingGemini ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                   <span>{testingGemini ? 'Testing...' : 'Save & Test'}</span>

@@ -27,5 +27,5 @@ export type FileData = {
   content: string;
 };
 
-export type AIModel = 'ionic' | 'iconic' | 'gearbox';
+export type AIModel = 'iconic';
 
