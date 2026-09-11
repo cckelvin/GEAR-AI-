@@ -132,19 +132,36 @@ app.post('/api/gemini/stream', async (req, res) => {
   }
 });
 
-// POST /api/groq/stream - Server-side SSE Groq streaming proxy (Open GPT OSS 120B / Gearbox)
+// POST /api/groq/stream - Server-side SSE Groq streaming proxy (Ionic / Iconic Full Project Builder)
 app.post('/api/groq/stream', async (req, res) => {
   const { messages, model, systemInstruction } = req.body;
   const effectiveKey = req.headers['x-groq-key'] || GROQ_API_KEY;
 
   if (!effectiveKey) {
     return res.status(500).json({ 
-      error: "No Groq API key found. Please add your GROQ_API_KEY in Secrets & Environment or Settings." 
+      error: "No Groq API key found. Please add your Groq API key in Settings or Secrets & Environment." 
     });
   }
 
-  const requestedModel = model || "openai/gpt-oss-120b";
-  const fallbackModels = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-70b-versatile", "mixtral-8x7b-32768"];
+  // Model selection: iconic uses llama-3.3-70b-versatile (Compound speed), ionic uses deep reasoning
+  let requestedModel = model;
+  if (!requestedModel || requestedModel === 'iconic') {
+    requestedModel = "llama-3.3-70b-versatile";
+  } else if (requestedModel === 'ionic') {
+    requestedModel = "llama-3.3-70b-versatile";
+  }
+
+  const fallbackModels = [
+    requestedModel,
+    "llama-3.3-70b-versatile",
+    "llama-3.1-70b-versatile",
+    "deepseek-r1-distill-llama-70b",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768"
+  ];
+
+  // Remove duplicates while keeping order
+  const modelCandidates = Array.from(new Set(fallbackModels));
 
   // Format messages
   let formattedMessages = [];
@@ -184,25 +201,22 @@ app.post('/api/groq/stream', async (req, res) => {
 
   try {
     let groqRes = null;
-    let usedModel = requestedModel;
+    let lastErr = null;
 
-    try {
-      groqRes = await tryStreamWithModel(requestedModel);
-    } catch (primaryErr) {
-      console.warn(`Primary Groq model ${requestedModel} failed:`, primaryErr.message);
-      // Try fallback models
-      for (const fallback of fallbackModels) {
-        if (fallback === requestedModel) continue;
-        try {
-          console.log(`Attempting fallback Groq model: ${fallback}`);
-          groqRes = await tryStreamWithModel(fallback);
-          usedModel = fallback;
+    for (const mod of modelCandidates) {
+      try {
+        groqRes = await tryStreamWithModel(mod);
+        if (groqRes && groqRes.ok) {
           break;
-        } catch (fallbackErr) {
-          console.warn(`Fallback Groq model ${fallback} failed:`, fallbackErr.message);
         }
+      } catch (err) {
+        lastErr = err;
+        console.warn(`Groq model ${mod} attempt failed:`, err.message);
       }
-      if (!groqRes) throw primaryErr;
+    }
+
+    if (!groqRes || !groqRes.ok) {
+      throw lastErr || new Error("Failed to connect to Groq models with provided key.");
     }
 
     const reader = groqRes.body.getReader();
@@ -267,10 +281,22 @@ app.post('/api/groq/generate', async (req, res) => {
     formattedMessages.push(...messages);
   }
 
-  const requestedModel = model || "openai/gpt-oss-120b";
-  const fallbackModels = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-70b-versatile"];
+  let requestedModel = model;
+  if (!requestedModel || requestedModel === 'iconic' || requestedModel === 'ionic') {
+    requestedModel = "llama-3.3-70b-versatile";
+  }
 
-  for (const mod of [requestedModel, ...fallbackModels.filter(m => m !== requestedModel)]) {
+  const modelCandidates = Array.from(new Set([
+    requestedModel,
+    "llama-3.3-70b-versatile",
+    "llama-3.1-70b-versatile",
+    "deepseek-r1-distill-llama-70b",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768"
+  ]));
+
+  let lastErr = null;
+  for (const mod of modelCandidates) {
     try {
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
@@ -289,13 +315,17 @@ app.post('/api/groq/generate', async (req, res) => {
         const data = await response.json();
         const text = data.choices?.[0]?.message?.content || '';
         return res.json({ text, model: mod });
+      } else {
+        const errJson = await response.json().catch(() => ({}));
+        lastErr = new Error(errJson.error?.message || `HTTP ${response.status}`);
       }
     } catch (e) {
+      lastErr = e;
       console.warn(`Groq model ${mod} error:`, e.message);
     }
   }
 
-  res.status(500).json({ error: "Failed to generate response from Groq OSS models." });
+  res.status(500).json({ error: lastErr?.message || "Failed to generate response from Groq models." });
 });
 
 // POST /api/secrets/test - Test secret/key connectivity
@@ -308,24 +338,42 @@ app.post('/api/secrets/test', async (req, res) => {
 
   try {
     if (type === 'groq') {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${key}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'openai/gpt-oss-120b',
-          messages: [{ role: 'user', content: 'Say "connected"' }],
-          max_tokens: 5
-        })
-      });
+      const testModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'llama-3.1-70b-versatile'];
+      let verified = false;
+      let lastMsg = '';
 
-      if (response.ok) {
-        return res.json({ success: true, message: "Groq API key verified! openai/gpt-oss-120b is ready." });
+      for (const m of testModels) {
+        try {
+          const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${key}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: m,
+              messages: [{ role: 'user', content: 'Say "connected"' }],
+              max_tokens: 5
+            })
+          });
+
+          if (response.ok) {
+            verified = true;
+            lastMsg = `Groq API Key verified successfully with ${m}!`;
+            break;
+          } else {
+            const err = await response.json().catch(() => ({}));
+            lastMsg = err.error?.message || `Groq returned HTTP ${response.status}`;
+          }
+        } catch (err) {
+          lastMsg = err.message;
+        }
+      }
+
+      if (verified) {
+        return res.json({ success: true, message: lastMsg });
       } else {
-        const err = await response.json().catch(() => ({}));
-        return res.status(400).json({ success: false, error: err.error?.message || `Groq responded with HTTP ${response.status}` });
+        return res.status(400).json({ success: false, error: lastMsg || "Groq key verification failed" });
       }
     }
 

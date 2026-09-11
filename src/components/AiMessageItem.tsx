@@ -20,7 +20,8 @@ import {
   Check,
   Palette,
   Globe,
-  Braces
+  Braces,
+  Terminal
 } from 'lucide-react';
 import { Message } from '../types';
 
@@ -45,6 +46,20 @@ interface AiMessageItemProps {
 function getFileVisualInfo(fileName: string, isPatch?: boolean) {
   const lower = fileName.toLowerCase();
   
+  if (lower.endsWith('.py')) {
+    return {
+      icon: Terminal,
+      badgeColor: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20',
+      typeLabel: 'Python'
+    };
+  }
+  if (lower.includes('vite.config')) {
+    return {
+      icon: Zap,
+      badgeColor: 'text-purple-400 bg-purple-500/10 border-purple-500/20',
+      typeLabel: 'Vite Config'
+    };
+  }
   if (lower.endsWith('.html') || lower.endsWith('.htm')) {
     return {
       icon: Globe,
@@ -70,7 +85,14 @@ function getFileVisualInfo(fileName: string, isPatch?: boolean) {
     return {
       icon: Braces,
       badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-      typeLabel: 'JSON'
+      typeLabel: lower === 'package.json' ? 'Node Pkg' : 'JSON'
+    };
+  }
+  if (lower.endsWith('.sh') || lower.endsWith('.bash')) {
+    return {
+      icon: Terminal,
+      badgeColor: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+      typeLabel: 'Shell'
     };
   }
   if (lower.endsWith('.js') || lower.endsWith('.jsx') || lower.endsWith('.mjs')) {
@@ -211,10 +233,21 @@ const FileGridCard: React.FC<FileCardProps> = ({ file, onOpen, onApply }) => {
             transition={{ duration: 0.15 }}
             className="overflow-hidden mt-2 pt-2 border-t border-neutral-800/80"
           >
-            <div className="bg-black/90 rounded-lg p-2 max-h-48 overflow-y-auto custom-scrollbar border border-neutral-800/80">
-              <pre className="text-[10px] font-mono text-neutral-300 leading-relaxed whitespace-pre overflow-x-auto">
-                <code>{file.content}</code>
-              </pre>
+            <div className="bg-black/90 rounded-lg max-h-56 overflow-y-auto custom-scrollbar border border-neutral-800/80 text-[10px] font-mono flex">
+              {/* Line numbers column */}
+              <div className="bg-neutral-950/90 border-r border-neutral-800/80 py-2.5 px-2.5 select-none text-right text-neutral-600 shrink-0 font-mono">
+                {file.content.split('\n').map((_, i) => (
+                  <div key={i} className="h-[18px] leading-[18px] min-w-[1.25rem]">{i + 1}</div>
+                ))}
+              </div>
+              {/* Code content column */}
+              <div className="flex-1 overflow-x-auto py-2.5 px-3 custom-scrollbar">
+                <pre className="text-neutral-300 font-mono whitespace-pre">
+                  {file.content.split('\n').map((line, i) => (
+                    <div key={i} className="h-[18px] leading-[18px]">{line || ' '}</div>
+                  ))}
+                </pre>
+              </div>
             </div>
           </motion.div>
         )}
@@ -300,7 +333,7 @@ export const AiMessageItem: React.FC<AiMessageItemProps> = ({
   }
 
   // Also check if any generic code block starts with a filename comment (e.g. // src/components/navbar.js)
-  const commentFileRegex = /```(\w+)?\r?\n(?:\/\/|\/\*|<!--)\s*([a-zA-Z0-9._\-/]+\.[a-zA-Z0-9]+)[\s\S]*?\r?\n([\s\S]*?)(?:```|$)/g;
+  const commentFileRegex = /```(\w+)?\r?\n(?:\/\/|\/\*|<!--|#)\s*([a-zA-Z0-9._\-/]+\.[a-zA-Z0-9]+)[\s\S]*?\r?\n([\s\S]*?)(?:```|$)/g;
   while ((match = commentFileRegex.exec(rawText)) !== null) {
     const lang = match[1] || '';
     const fileName = match[2];
@@ -309,6 +342,48 @@ export const AiMessageItem: React.FC<AiMessageItemProps> = ({
     if (fileName && !filesMap.has(fileName)) {
       registerFile(fileName, code, lang, isPatch);
     }
+  }
+
+  // Also capture any generic unnamed code blocks and map them to their corresponding runtime file
+  const genericCodeBlockRegex = /```([a-zA-Z0-9_-]+)?\r?\n([\s\S]*?)(?:```|$)/g;
+  let genericMatch;
+  let unnamedCount = 1;
+  while ((genericMatch = genericCodeBlockRegex.exec(rawText)) !== null) {
+    const rawTag = (genericMatch[1] || '').trim().toLowerCase();
+    // Skip if it contains colon or already processed
+    if (rawTag.includes(':')) continue;
+    const code = genericMatch[2] || '';
+    if (!code.trim()) continue;
+
+    // Check if this code content was already captured by one of the files
+    const alreadyCaptured = Array.from(filesMap.values()).some(f => f.content.trim() === code.trim());
+    if (alreadyCaptured) continue;
+
+    let inferredName = '';
+    if (rawTag === 'html') inferredName = 'index.html';
+    else if (rawTag === 'css') inferredName = 'styles.css';
+    else if (rawTag === 'python' || rawTag === 'py') inferredName = 'main.py';
+    else if (rawTag === 'javascript' || rawTag === 'js') inferredName = 'main.js';
+    else if (rawTag === 'typescript' || rawTag === 'ts') inferredName = 'src/main.ts';
+    else if (rawTag === 'tsx') inferredName = 'src/App.tsx';
+    else if (rawTag === 'jsx') inferredName = 'src/App.jsx';
+    else if (rawTag === 'json') inferredName = 'package.json';
+    else if (rawTag === 'sh' || rawTag === 'bash') inferredName = 'run.sh';
+    else inferredName = `module_${unnamedCount++}.${rawTag || 'txt'}`;
+
+    let finalName = inferredName;
+    let counter = 2;
+    while (filesMap.has(finalName)) {
+      const dotIndex = inferredName.lastIndexOf('.');
+      if (dotIndex !== -1) {
+        finalName = `${inferredName.slice(0, dotIndex)}_${counter++}${inferredName.slice(dotIndex)}`;
+      } else {
+        finalName = `${inferredName}_${counter++}`;
+      }
+    }
+
+    const isPatch = rawTag === 'patch' || (code.includes('<<<<<<< SEARCH') && code.includes('======='));
+    registerFile(finalName, code, rawTag, isPatch);
   }
 
   // Include activeCodingFile if AI is currently streaming code for it
@@ -334,15 +409,15 @@ export const AiMessageItem: React.FC<AiMessageItemProps> = ({
   const filesList = Array.from(filesMap.values());
 
   // 2. STRIP ALL MULTI-LINE CODE BLOCKS FROM CONVERSATION TEXT
-  // The user explicitly requested: "instead of also dropping code in conversation only grid should be shown for each file"
+  // User directive: "instead of also dropping code in conversation only grid should be shown for each file"
   let cleanConversationText = rawText
-    .replace(/```(\w+)?(?::[^\n\r]+)?\r?\n[\s\S]*?(?:```|$)/g, '')
+    .replace(/```[\s\S]*?(?:```|$)/g, '')
     .replace(/FILE:\s*[a-zA-Z0-9._\-/]+\r?\n[\s\S]*?(?=FILE:|$|```)/g, '')
     .trim();
 
   // If text is empty because response was pure code, provide a neat intro
   if (!cleanConversationText && filesList.length > 0) {
-    cleanConversationText = `Architected application modularly across ${filesList.length} workspace file${filesList.length > 1 ? 's' : ''}:`;
+    cleanConversationText = `Built application across ${filesList.length} workspace file${filesList.length > 1 ? 's' : ''}:`;
   }
 
   // 3. Parse lines to identify v0 / bolt-like step badges

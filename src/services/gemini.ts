@@ -179,32 +179,53 @@ export function getSystemInstruction(settings?: {
     emojiInstruction = "Use emojis moderately and professionally, only to highlight specific steps or code blocks.";
   }
 
+  const activeModel = settings?.activeModel || 'iconic';
+  const isIonic = activeModel === 'ionic';
+
   const modelModeInstruction = `
-MODEL: ICONIC GEAR (Google AI Studio Gemini Engine)
-- Powering the workspace logic editor, code creation, architectural planning, and surgical modifications.
-- GOOGLE AI STUDIO INTERACTION STYLE:
-  1. Respond directly, articulately, and with developer-first craftsmanship like Google AI Studio.
-  2. Structure responses cleanly using rich Markdown, concise architectural overviews, and syntax-highlighted code blocks.
-  3. No artificial wait times, unnecessary chatter, or conversational filler.
-  4. For surgical additions and modifications to existing files:
-     \`\`\`patch:path/to/file.ext
-     <<<<<<< SEARCH
-     [exact original lines from the file to replace or anchor around]
-     =======
-     [the new or updated replacement lines]
-     >>>>>>>
-     \`\`\`
-  5. For creating NEW files, folders, and nested subfolders (e.g. \`src/components/Header.js\`, \`public/data.json\`, \`styles/theme.css\`), output full labeled file blocks:
-     \`\`\`language:path/to/nested/file.ext
-     [complete code content]
-     \`\`\`
-  6. For complete file rewrites or initial application generation:
-     \`\`\`language:path/to/file.ext
-     [complete code content]
-     \`\`\`
+ACTIVE MODEL: ${isIonic ? 'IONIC (GPT OSS 120B Full Project Builder)' : 'ICONIC (Groq Compound Project Builder)'}
+- Architecture: ${isIonic ? '120-Billion Parameter Open Foundation Reasoning Model' : 'Ultra-Fast Compound AI System with Speculative Inference Acceleration'}
+- Role: Elite Full Project Builder & Software Architect inside Gear Studio.
+
+GEAR STUDIO MULTI-RUNTIME FULL PROJECT BUILDER DIRECTIVE:
+Gear Studio is NOT just for making simple websites! Gear Studio is a complete multi-runtime coding studio with pre-installed extensions for:
+1. ⚡ VITE FULL-STACK RUNNER:
+   - Modern React/TypeScript/Vue/Svelte applications, component libraries, and web frontends.
+   - Files: \`vite.config.ts\`, \`package.json\`, \`index.html\`, \`src/App.tsx\`, \`src/components/*\`.
+2. 🐍 PYTHON 3.11 RUNTIME & REPL:
+   - Python scripts, algorithms, data processing, automation, API clients, and backend services.
+   - Files: \`main.py\`, \`app.py\`, \`script.py\`, \`requirements.txt\`.
+   - Gear Studio executes Python scripts directly with stdout/stderr streamed to the integrated terminal!
+3. 🟢 NODE.JS LTS EXECUTION ENGINE:
+   - Node.js scripts, Express servers, CLI utilities, background workers, and NPM packages.
+   - Files: \`server.js\`, \`index.js\`, \`package.json\`.
+   - Gear Studio runs Node.js scripts directly in a sandboxed VFS environment with console logging!
+4. STANDALONE & FULL-STACK COMBINATIONS:
+   - Always craft complete, robust projects with appropriate directory structures and clean code separation.
+
+INTERACTION & CODE EMISSION STANDARDS:
+1. Respond directly, articulately, and with developer-first craftsmanship like Google AI Studio.
+2. Structure responses cleanly using rich Markdown, concise architectural overviews, and syntax-highlighted code blocks.
+3. No artificial wait times, unnecessary chatter, or conversational filler.
+4. For surgical additions and modifications to existing files:
+   \`\`\`patch:path/to/file.ext
+   <<<<<<< SEARCH
+   [exact original lines from the file to replace or anchor around]
+   =======
+   [the new or updated replacement lines]
+   >>>>>>>
+   \`\`\`
+5. For creating NEW files, folders, and nested subfolders (e.g. \`main.py\`, \`server.js\`, \`src/components/Header.tsx\`, \`public/data.json\`), output full labeled file blocks:
+   \`\`\`language:path/to/nested/file.ext
+   [complete code content]
+   \`\`\`
+6. For complete file rewrites or initial application generation:
+   \`\`\`language:path/to/file.ext
+   [complete code content]
+   \`\`\`
 `;
 
-  return `You are ${name}, an elite software architect and coding assistant powered by Google AI Studio and Google DeepMind technology. Your goal is to turn natural language into polished, production-ready web applications.
+  return `You are ${isIonic ? 'Ionic (GPT OSS 120B)' : 'Iconic (Groq Compound)'}, an elite full project builder and software architect inside Gear Studio. Your mission is to turn natural language into polished, production-ready full-stack projects across Vite, Python, and Node.js.
 You are chatting with ${user}. Always address them by this name when appropriate.
 
 ${modelModeInstruction}
@@ -398,11 +419,191 @@ Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gem
 
   const systemInstruction = getSystemInstruction(settings);
 
-  // EXCLUSIVE MODEL EXECUTION: ICONIC GEAR (Google AI Studio Gemini)
+  // 1. Check for Groq API keys (Primary access engine requested by user)
+  const groqKeys = getEffectiveGroqApiKeys();
+  const effectiveGroqKey = groqKeys[0] || '';
+
+  // Format messages for Groq OpenAI-compatible format
+  const groqMessages: { role: string; content: string }[] = [];
+  history.forEach(h => {
+    const role = h.role === 'model' ? 'assistant' : 'user';
+    const text = h.parts.map(p => p.text).join('\n');
+    if (text) {
+      groqMessages.push({ role, content: text });
+    }
+  });
+  groqMessages.push({ role: 'user', content: contextPrompt });
+
+  // Priority 1: Groq Execution Engine (Ionic GPT OSS 120B / Iconic Groq Compound)
+  if (effectiveGroqKey) {
+    try {
+      const serverRes = await fetch('/api/groq/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-groq-key': effectiveGroqKey
+        },
+        body: JSON.stringify({
+          messages: groqMessages,
+          systemInstruction,
+          model: activeModel === 'ionic' ? 'ionic' : 'iconic'
+        })
+      });
+
+      if (serverRes.ok) {
+        async function* groqSseIterator() {
+          const reader = serverRes.body?.getReader();
+          if (!reader) return;
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const dataStr = line.replace('data: ', '').trim();
+                if (dataStr === '[DONE]') return;
+                try {
+                  const parsed = JSON.parse(dataStr);
+                  if (parsed.text) {
+                    yield { text: parsed.text };
+                  } else if (parsed.error) {
+                    throw new Error(parsed.error);
+                  }
+                } catch (e: any) {
+                  if (e?.message && !e.message.includes('JSON')) {
+                    throw e;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        return groqSseIterator();
+      } else {
+        const errData = await serverRes.json().catch(() => ({}));
+        throw new Error(errData.error || `Groq returned status ${serverRes.status}. Please check your Groq API key.`);
+      }
+    } catch (groqErr: any) {
+      // Direct browser fallback to Groq API
+      try {
+        const directRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${effectiveGroqKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              ...(systemInstruction ? [{ role: 'system', content: systemInstruction }] : []),
+              ...groqMessages
+            ],
+            stream: true,
+            temperature: 0.2
+          })
+        });
+
+        if (directRes.ok) {
+          async function* directGroqIterator() {
+            const reader = directRes.body?.getReader();
+            if (!reader) return;
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || !trimmed.startsWith('data:')) continue;
+                const dataStr = trimmed.replace(/^data:\s*/, '');
+                if (dataStr === '[DONE]') return;
+                try {
+                  const parsed = JSON.parse(dataStr);
+                  const delta = parsed.choices?.[0]?.delta?.content || '';
+                  if (delta) {
+                    yield { text: delta };
+                  }
+                } catch (e) {}
+              }
+            }
+          }
+          return directGroqIterator();
+        }
+      } catch (directErr) {
+        console.warn("Direct Groq call failed:", directErr);
+      }
+
+      throw groqErr;
+    }
+  }
+
+  // Fallback: If no Groq key is found, check if server has GROQ_API_KEY
+  try {
+    const serverRes = await fetch('/api/groq/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messages: groqMessages,
+        systemInstruction,
+        model: activeModel === 'ionic' ? 'ionic' : 'iconic'
+      })
+    });
+
+    if (serverRes.ok) {
+      async function* serverGroqIterator() {
+        const reader = serverRes.body?.getReader();
+        if (!reader) return;
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.replace('data: ', '').trim();
+              if (dataStr === '[DONE]') return;
+              try {
+                const parsed = JSON.parse(dataStr);
+                if (parsed.text) {
+                  yield { text: parsed.text };
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      }
+      return serverGroqIterator();
+    }
+  } catch (e) {}
+
+  // If no Groq key exists, check Gemini secondary fallback
   const geminiKeys = getEffectiveApiKeys();
   const effectiveGeminiKey = geminiKeys[0] || '';
 
-  // Prepare Gemini contents with history, text prompt, and multimodal image parts
+  if (!effectiveGeminiKey) {
+    throw new Error("No Groq API Key found. Please add your Groq API key in Settings or click the Groq Key pill in the navigation bar to start building projects with Ionic (GPT OSS 120B) and Iconic (Groq Compound).");
+  }
+
+  // Secondary Fallback: Gemini Execution
   const userParts: any[] = [{ text: contextPrompt }];
   if (images && images.length > 0) {
     images.forEach(img => {
@@ -427,7 +628,6 @@ Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gem
     parts: userParts
   });
 
-  // 1. Attempt client-side streaming if client key is configured
   const ai = getAI();
   if (ai) {
     try {
@@ -453,7 +653,6 @@ Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gem
     }
   }
 
-  // 2. Server-side streaming fallback via SSE
   const serverRes = await fetch('/api/gemini/stream', {
     method: 'POST',
     headers: {
@@ -469,7 +668,7 @@ Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gem
 
   if (!serverRes.ok) {
     const errData = await serverRes.json().catch(() => ({}));
-    throw new Error(errData.error || `Iconic Gear returned ${serverRes.status}: Please ensure your Gemini API Key is configured in Settings or Secrets & Environment.`);
+    throw new Error(errData.error || `Iconic Gear returned ${serverRes.status}: Please ensure your Groq or Gemini API Key is configured in Settings.`);
   }
 
   async function* geminiSseIterator() {
@@ -561,11 +760,77 @@ Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gem
     contextPrompt = `[MULTIMODAL FILE & VISION ANALYSIS]: ${images.length} file/image attachment(s) provided. Perform deep visual and structural analysis (UI layout, typography, colors, component hierarchy, text OCR, interactions) and generate/update the workspace code accordingly.\n\n` + contextPrompt;
   }
 
+  const activeModel = settings?.activeModel || 'iconic';
   const systemInstruction = getSystemInstruction(settings);
 
-  // EXCLUSIVE MODEL EXECUTION: ICONIC GEAR (Google AI Studio Gemini)
+  // 1. Check for Groq API keys (Primary access engine)
+  const groqKeys = getEffectiveGroqApiKeys();
+  const effectiveGroqKey = groqKeys[0] || '';
+
+  // Format messages for Groq
+  const groqMessages: { role: string; content: string }[] = [];
+  history.forEach(h => {
+    const role = h.role === 'model' ? 'assistant' : 'user';
+    const text = h.parts.map(p => p.text).join('\n');
+    if (text) {
+      groqMessages.push({ role, content: text });
+    }
+  });
+  groqMessages.push({ role: 'user', content: contextPrompt });
+
+  // Try Groq first with user key or server key
+  if (effectiveGroqKey) {
+    try {
+      const serverRes = await fetch('/api/groq/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-groq-key': effectiveGroqKey
+        },
+        body: JSON.stringify({
+          messages: groqMessages,
+          systemInstruction,
+          model: activeModel === 'ionic' ? 'ionic' : 'iconic'
+        })
+      });
+
+      if (serverRes.ok) {
+        const data = await serverRes.json();
+        return data.text;
+      }
+    } catch (e) {
+      console.warn("Server Groq generate failed, trying direct Groq:", e);
+      try {
+        const directRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${effectiveGroqKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              ...(systemInstruction ? [{ role: 'system', content: systemInstruction }] : []),
+              ...groqMessages
+            ],
+            temperature: 0.2
+          })
+        });
+        if (directRes.ok) {
+          const directData = await directRes.json();
+          return directData.choices?.[0]?.message?.content || '';
+        }
+      } catch (directErr) {}
+    }
+  }
+
+  // Secondary Fallback: Gemini Execution
   const geminiKeys = getEffectiveApiKeys();
   const effectiveGeminiKey = geminiKeys[0] || '';
+
+  if (!effectiveGeminiKey && !effectiveGroqKey) {
+    throw new Error("No Groq API Key found. Please add your Groq API key in Settings or click the Groq Key pill in the navigation bar.");
+  }
 
   const userParts: any[] = [{ text: contextPrompt }];
   if (images && images.length > 0) {
@@ -622,7 +887,7 @@ Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gem
 
   if (!serverRes.ok) {
     const errData = await serverRes.json().catch(() => ({}));
-    throw new Error(errData.error || `Iconic Gear returned ${serverRes.status}: Failed to generate response. Please check your Gemini API key in Settings.`);
+    throw new Error(errData.error || `Iconic Gear returned ${serverRes.status}: Failed to generate response. Please check your Groq or Gemini API key in Settings.`);
   }
 
   const data = await serverRes.json();
