@@ -17,8 +17,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Environment Variables & Secrets
-const API_KEY = process.env.GEMINI_API_KEY || process.env.API_KEY || process.env.VITE_GEAR_API || '';
-const GROQ_API_KEY = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || '';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 const VERCEL_TOKEN = process.env.VERCEL_TOKEN || '';
@@ -28,6 +27,54 @@ const SPACESHIP_API_KEY = process.env.SPACESHIP_API_KEY || '';
 const SPACESHIP_API_SECRET = process.env.SPACESHIP_API_SECRET || '';
 const SPACESHIP_API_URL = (process.env.SPACESHIP_API_URL || "https://api.spaceship.com/v1").replace(/\/$/, "");
 
+// Helper to obtain Gemini client instance
+const getGeminiClient = (req) => {
+  const customKey = req?.headers?.['x-gemini-key'] || req?.headers?.['x-groq-key'];
+  const effectiveKey = customKey || GEMINI_API_KEY;
+  if (!effectiveKey) return null;
+  return new GoogleGenAI({ apiKey: effectiveKey });
+};
+
+// Map requested model to candidates:
+// ionic: Gemini 3 Flash (gemini-3-flash-preview, fallback to gemini-3.8-flash, gemini-3.5-flash)
+// iconic: Gemini 3.1 Flash Lite (main), Gemini 3.5 Flash Lite (fallback)
+const getGeminiModelCandidates = (requestedModel) => {
+  if (requestedModel === 'ionic' || requestedModel === 'gemini-3-flash' || requestedModel === 'gemini-3-flash-preview') {
+    return ['gemini-3-flash-preview', 'gemini-3.8-flash', 'gemini-3.5-flash'];
+  }
+  return ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite'];
+};
+
+// Helper to format raw chat messages into @google/genai contents
+const formatGeminiContents = (rawMessages) => {
+  const contents = [];
+  if (Array.isArray(rawMessages)) {
+    for (const msg of rawMessages) {
+      if (!msg) continue;
+      if (msg.role === 'system') continue;
+      const role = (msg.role === 'assistant' || msg.role === 'model') ? 'model' : 'user';
+      let text = '';
+      if (typeof msg.content === 'string') {
+        text = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        text = msg.content.map(c => typeof c === 'string' ? c : (c.text || '')).join('\n');
+      } else if (msg.content) {
+        text = String(msg.content);
+      }
+      if (text) {
+        contents.push({
+          role,
+          parts: [{ text }]
+        });
+      }
+    }
+  }
+  if (contents.length === 0) {
+    contents.push({ role: 'user', parts: [{ text: 'Hello' }] });
+  }
+  return contents;
+};
+
 // GET / - Health Check
 app.get('/', (req, res, next) => {
   if (req.headers.accept && req.headers.accept.includes('text/html')) {
@@ -36,297 +83,143 @@ app.get('/', (req, res, next) => {
   res.send('Gear AI backend is working 🚀');
 });
 
-// POST /ask - Gemini API Proxy (backward compatible)
+// POST /ask - Legacy proxy routed to primary intelligence engine
 app.post('/ask', async (req, res) => {
   const { message } = req.body;
   if (!message) return res.status(400).json({ error: "Message is required" });
   
-  const effectiveKey = req.headers['x-gemini-key'] || API_KEY;
-  if (!effectiveKey) return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
+  const client = getGeminiClient(req);
+  if (!client) return res.status(500).json({ error: "Gemini API key not configured in secrets." });
 
-  try {
-    const ai = new GoogleGenAI({ apiKey: effectiveKey });
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: [{ role: 'user', parts: [{ text: message }] }]
-    });
-    res.json({ text: response.text });
-  } catch (error) {
-    res.status(500).json({ error: error.message || "Failed to generate content" });
-  }
-});
-
-// POST /api/gemini/generate - Server-side Gemini proxy
-app.post('/api/gemini/generate', async (req, res) => {
-  const { contents, systemInstruction, model } = req.body;
-  const effectiveKey = req.headers['x-gemini-key'] || API_KEY;
-  
-  if (!effectiveKey) {
-    return res.status(500).json({ 
-      error: "No Gemini API key found on server. Please add your key in Secrets & Environment or Settings." 
-    });
-  }
-
-  try {
-    const ai = new GoogleGenAI({ apiKey: effectiveKey });
-    const selectedModel = model || "gemini-2.5-flash";
-    
-    const response = await ai.models.generateContent({
-      model: selectedModel,
-      contents: contents || [],
-      config: {
-        systemInstruction: systemInstruction || undefined
-      }
-    });
-
-    res.json({ text: response.text });
-  } catch (error) {
-    console.error("Gemini Generate Error:", error);
-    res.status(500).json({ error: error.message || "Failed to generate content from Gemini" });
-  }
-});
-
-// POST /api/gemini/stream - Server-side SSE Gemini streaming proxy
-app.post('/api/gemini/stream', async (req, res) => {
-  const { contents, systemInstruction, model } = req.body;
-  const effectiveKey = req.headers['x-gemini-key'] || API_KEY;
-
-  if (!effectiveKey) {
-    return res.status(500).json({ 
-      error: "No Gemini API key found on server. Please configure your key in Secrets & Environment." 
-    });
-  }
-
-  try {
-    const ai = new GoogleGenAI({ apiKey: effectiveKey });
-    const selectedModel = model || "gemini-2.5-flash";
-
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
-    const streamResponse = await ai.models.generateContentStream({
-      model: selectedModel,
-      contents: contents || [],
-      config: {
-        systemInstruction: systemInstruction || undefined
-      }
-    });
-
-    for await (const chunk of streamResponse) {
-      if (chunk.text) {
-        res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
-      }
-    }
-
-    res.write(`data: [DONE]\n\n`);
-    res.end();
-  } catch (error) {
-    console.error("Gemini Stream Error:", error);
-    if (!res.headersSent) {
-      res.status(500).json({ error: error.message || "Failed to stream content from Gemini" });
-    } else {
-      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
-      res.end();
+  const modelCandidates = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite'];
+  for (const mod of modelCandidates) {
+    try {
+      const response = await client.models.generateContent({
+        model: mod,
+        contents: message
+      });
+      return res.json({ text: response.text || '' });
+    } catch (err) {
+      console.warn(`Ask model ${mod} attempt failed:`, err.message);
     }
   }
+  res.status(500).json({ error: "Failed to generate answer" });
 });
 
-// POST /api/groq/stream - Server-side SSE Groq streaming proxy (Ionic / Iconic Full Project Builder)
-app.post('/api/groq/stream', async (req, res) => {
+// Stream handler for Gemini SSE streaming
+const handleStream = async (req, res) => {
   const { messages, model, systemInstruction } = req.body;
-  const effectiveKey = req.headers['x-groq-key'] || GROQ_API_KEY;
+  const client = getGeminiClient(req);
 
-  if (!effectiveKey) {
+  if (!client) {
     return res.status(500).json({ 
-      error: "No Groq API key found. Please add your Groq API key in Settings or Secrets & Environment." 
+      error: "No Gemini API key found. Please verify your GEMINI_API_KEY secret." 
     });
   }
 
-  // Model selection: iconic uses llama-3.3-70b-versatile (Compound speed), ionic uses deep reasoning
-  let requestedModel = model;
-  if (!requestedModel || requestedModel === 'iconic') {
-    requestedModel = "llama-3.3-70b-versatile";
-  } else if (requestedModel === 'ionic') {
-    requestedModel = "llama-3.3-70b-versatile";
+  const modelCandidates = getGeminiModelCandidates(model);
+  const contents = formatGeminiContents(messages);
+
+  let systemInstructionText = systemInstruction || '';
+  if (!systemInstructionText && Array.isArray(messages)) {
+    const sysMsg = messages.find(m => m && m.role === 'system');
+    if (sysMsg) systemInstructionText = sysMsg.content || '';
   }
 
-  const fallbackModels = [
-    requestedModel,
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "deepseek-r1-distill-llama-70b",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768"
-  ];
-
-  // Remove duplicates while keeping order
-  const modelCandidates = Array.from(new Set(fallbackModels));
-
-  // Format messages
-  let formattedMessages = [];
-  if (systemInstruction) {
-    formattedMessages.push({ role: 'system', content: systemInstruction });
-  }
-  if (Array.isArray(messages)) {
-    formattedMessages.push(...messages);
+  const config = {};
+  if (systemInstructionText) {
+    config.systemInstruction = systemInstructionText;
   }
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
-  const tryStreamWithModel = async (modelToUse) => {
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${effectiveKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: modelToUse,
-        messages: formattedMessages,
-        stream: true,
-        temperature: 0.2
-      })
-    });
+  let streamedSuccessfully = false;
+  let lastErr = null;
 
-    if (!groqRes.ok) {
-      const err = await groqRes.json().catch(() => ({}));
-      throw new Error(err.error?.message || `Groq responded with HTTP ${groqRes.status}`);
-    }
+  for (const mod of modelCandidates) {
+    try {
+      const stream = await client.models.generateContentStream({
+        model: mod,
+        contents,
+        config
+      });
 
-    return groqRes;
-  };
-
-  try {
-    let groqRes = null;
-    let lastErr = null;
-
-    for (const mod of modelCandidates) {
-      try {
-        groqRes = await tryStreamWithModel(mod);
-        if (groqRes && groqRes.ok) {
-          break;
+      for await (const chunk of stream) {
+        if (chunk.text) {
+          res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
         }
-      } catch (err) {
-        lastErr = err;
-        console.warn(`Groq model ${mod} attempt failed:`, err.message);
       }
+      res.write(`data: [DONE]\n\n`);
+      res.end();
+      streamedSuccessfully = true;
+      break;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`Gemini streaming attempt with ${mod} failed:`, err.message);
     }
+  }
 
-    if (!groqRes || !groqRes.ok) {
-      throw lastErr || new Error("Failed to connect to Groq models with provided key.");
-    }
-
-    const reader = groqRes.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('data:')) continue;
-        const dataStr = trimmed.replace(/^data:\s*/, '');
-        if (dataStr === '[DONE]') {
-          res.write(`data: [DONE]\n\n`);
-          res.end();
-          return;
-        }
-        try {
-          const parsed = JSON.parse(dataStr);
-          const delta = parsed.choices?.[0]?.delta?.content || '';
-          if (delta) {
-            res.write(`data: ${JSON.stringify({ text: delta })}\n\n`);
-          }
-        } catch (e) {}
-      }
-    }
-
-    res.write(`data: [DONE]\n\n`);
-    res.end();
-  } catch (error) {
-    console.error("Groq Stream Error:", error);
+  if (!streamedSuccessfully) {
     if (!res.headersSent) {
-      res.status(500).json({ error: error.message || "Failed to stream content from Groq" });
+      res.status(500).json({ error: lastErr?.message || "Failed to stream content from Gemini models" });
     } else {
-      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      res.write(`data: ${JSON.stringify({ error: lastErr?.message || "Stream interrupted" })}\n\n`);
+      res.write(`data: [DONE]\n\n`);
       res.end();
     }
   }
-});
+};
 
-// POST /api/groq/generate - Non-streaming Groq proxy
-app.post('/api/groq/generate', async (req, res) => {
+app.post('/api/gemini/stream', handleStream);
+app.post('/api/groq/stream', handleStream);
+
+// Non-streaming generate handler
+const handleGenerate = async (req, res) => {
   const { messages, model, systemInstruction } = req.body;
-  const effectiveKey = req.headers['x-groq-key'] || GROQ_API_KEY;
+  const client = getGeminiClient(req);
 
-  if (!effectiveKey) {
+  if (!client) {
     return res.status(500).json({ 
-      error: "No Groq API key found. Please configure your GROQ_API_KEY in Secrets & Environment." 
+      error: "No Gemini API key found. Please verify your GEMINI_API_KEY secret." 
     });
   }
 
-  let formattedMessages = [];
-  if (systemInstruction) {
-    formattedMessages.push({ role: 'system', content: systemInstruction });
-  }
-  if (Array.isArray(messages)) {
-    formattedMessages.push(...messages);
+  const modelCandidates = getGeminiModelCandidates(model);
+  const contents = formatGeminiContents(messages);
+
+  let systemInstructionText = systemInstruction || '';
+  if (!systemInstructionText && Array.isArray(messages)) {
+    const sysMsg = messages.find(m => m && m.role === 'system');
+    if (sysMsg) systemInstructionText = sysMsg.content || '';
   }
 
-  let requestedModel = model;
-  if (!requestedModel || requestedModel === 'iconic' || requestedModel === 'ionic') {
-    requestedModel = "llama-3.3-70b-versatile";
+  const config = {};
+  if (systemInstructionText) {
+    config.systemInstruction = systemInstructionText;
   }
-
-  const modelCandidates = Array.from(new Set([
-    requestedModel,
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "deepseek-r1-distill-llama-70b",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768"
-  ]));
 
   let lastErr = null;
   for (const mod of modelCandidates) {
     try {
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${effectiveKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: mod,
-          messages: formattedMessages,
-          temperature: 0.2
-        })
+      const response = await client.models.generateContent({
+        model: mod,
+        contents,
+        config
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        const text = data.choices?.[0]?.message?.content || '';
-        return res.json({ text, model: mod });
-      } else {
-        const errJson = await response.json().catch(() => ({}));
-        lastErr = new Error(errJson.error?.message || `HTTP ${response.status}`);
-      }
-    } catch (e) {
-      lastErr = e;
-      console.warn(`Groq model ${mod} error:`, e.message);
+      return res.json({ text: response.text || '', model: mod });
+    } catch (err) {
+      lastErr = err;
+      console.warn(`Gemini generate attempt with ${mod} failed:`, err.message);
     }
   }
 
-  res.status(500).json({ error: lastErr?.message || "Failed to generate response from Groq models." });
-});
+  res.status(500).json({ error: lastErr?.message || "Failed to generate response from Gemini models." });
+};
+
+app.post('/api/gemini/generate', handleGenerate);
+app.post('/api/groq/generate', handleGenerate);
 
 // POST /api/secrets/test - Test secret/key connectivity
 app.post('/api/secrets/test', async (req, res) => {
@@ -337,53 +230,19 @@ app.post('/api/secrets/test', async (req, res) => {
   }
 
   try {
-    if (type === 'groq') {
-      const testModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'llama-3.1-70b-versatile'];
-      let verified = false;
-      let lastMsg = '';
-
-      for (const m of testModels) {
-        try {
-          const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${key}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              model: m,
-              messages: [{ role: 'user', content: 'Say "connected"' }],
-              max_tokens: 5
-            })
-          });
-
-          if (response.ok) {
-            verified = true;
-            lastMsg = `Groq API Key verified successfully with ${m}!`;
-            break;
-          } else {
-            const err = await response.json().catch(() => ({}));
-            lastMsg = err.error?.message || `Groq returned HTTP ${response.status}`;
-          }
-        } catch (err) {
-          lastMsg = err.message;
+    if (type === 'gemini' || type === 'engine' || type === 'groq' || type === 'ai') {
+      try {
+        const testClient = new GoogleGenAI({ apiKey: key });
+        const response = await testClient.models.generateContent({
+          model: 'gemini-3.1-flash-lite',
+          contents: 'Say "ready"'
+        });
+        if (response && response.text) {
+          return res.json({ success: true, message: "Gemini API key verified successfully! Engine is active." });
         }
+      } catch (err) {
+        return res.status(400).json({ success: false, error: err.message || "Gemini key verification failed" });
       }
-
-      if (verified) {
-        return res.json({ success: true, message: lastMsg });
-      } else {
-        return res.status(400).json({ success: false, error: lastMsg || "Groq key verification failed" });
-      }
-    }
-
-    if (type === 'gemini' || type === 'ai') {
-      const ai = new GoogleGenAI({ apiKey: key });
-      const test = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: "Respond with the word: connected"
-      });
-      return res.json({ success: true, message: "Gemini API key is verified and operational!" });
     }
 
     if (type === 'spaceship') {
@@ -426,7 +285,8 @@ app.get('/api/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     supabase: !!SUPABASE_URL,
-    hasGeminiKey: !!API_KEY,
+    hasEngineKey: !!GEMINI_API_KEY,
+    engine: 'gemini',
     hasSpaceshipKey: !!SPACESHIP_API_KEY
   });
 });

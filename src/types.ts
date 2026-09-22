@@ -45,19 +45,3 @@ export interface AIModelConfig {
   bestFor: string;
 }
 
-export interface GearExtension {
-  id: string;
-  name: string;
-  identifier: string;
-  version: string;
-  category: 'runtime' | 'bundler' | 'language' | 'tool';
-  enabled: boolean;
-  description: string;
-  iconName: string;
-  author: string;
-  fileExtensions: string[];
-  features: string[];
-  canExecute: boolean;
-  executionEngine: string;
-}
-

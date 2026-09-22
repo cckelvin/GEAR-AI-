@@ -73,6 +73,8 @@ import {
   Users,
   ArrowRight,
   Paintbrush,
+  Palette,
+  Braces,
   Smartphone,
   Tablet,
   Monitor,
@@ -89,10 +91,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
 import { generateCodeResponse, generateCodeResponseStream, applySurgicalPatch } from './services/gemini';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
-import { Message, Space, FileData, AIModel, GearExtension } from './types';
-import { AI_MODELS, INITIAL_EXTENSIONS } from './data/extensions';
-import { runPythonCode, runNodeCode } from './services/runtimeRunner';
-import ExtensionsModal from './components/ExtensionsModal';
+import { Message, Space, FileData, AIModel } from './types';
+import { AI_MODELS } from './data/extensions';
 import LandingPage from './components/LandingPage';
 import AuthPage from './components/AuthPage';
 import IntegrationsPage from './components/IntegrationsPage';
@@ -148,29 +148,20 @@ export default function App() {
   const [activeModel, setActiveModel] = useState<AIModel>(() => {
     return (localStorage.getItem('gear_active_model') as AIModel) || 'iconic';
   });
-  const [extensions, setExtensions] = useState<GearExtension[]>(() => {
-    try {
-      const saved = localStorage.getItem('gear_extensions');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return INITIAL_EXTENSIONS;
-  });
-  const [showExtensionsModal, setShowExtensionsModal] = useState(false);
   const [diagnosticStatus, setDiagnosticStatus] = useState<string | null>(null);
 
-  // Multi-runtime execution & terminal state
-  const [terminalTab, setTerminalTab] = useState<'terminal' | 'python' | 'node' | 'vite' | 'extensions'>('terminal');
-  const [pythonOutput, setPythonOutput] = useState<Array<{ text: string; type: 'stdout' | 'stderr' | 'system'; time: string }>>([]);
-  const [nodeOutput, setNodeOutput] = useState<Array<{ text: string; type: 'stdout' | 'stderr' | 'system'; time: string }>>([]);
-  const [isRunningScript, setIsRunningScript] = useState(false);
+  // Standard web terminal & console state
+  const [terminalTab, setTerminalTab] = useState<'terminal' | 'console'>('terminal');
   const [terminalCommand, setTerminalCommand] = useState('');
   const [terminalHistory, setTerminalHistory] = useState<Array<{ command: string; output: string; time: string }>>([
     {
-      command: 'gear info',
-      output: 'Gear Studio v2.5 Multi-Runtime IDE\nExtensions: Vite Runner (v5.4), Python 3.11 (Pyodide), Node.js LTS (v20.12)\nModels: ionic (GPT OSS 120B), iconic (Groq Compound)',
+      command: 'web:ready',
+      output: 'Gear Studio Web Workspace\nStandard Stack: HTML5, CSS3, JavaScript (ESM), JSON\nEngine: ionic (Deep Architect) & iconic (Speed Engine)',
       time: new Date().toLocaleTimeString()
     }
   ]);
+  const [isCreatingFile, setIsCreatingFile] = useState(false);
+  const [newFileName, setNewFileName] = useState('');
   const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('gear_theme') as 'dark' | 'light') || 'dark';
   });
@@ -339,6 +330,25 @@ export default function App() {
     setIsViewLoading(true);
     setCurrentPage('view');
     try {
+      if (!isSupabaseConfigured) {
+        const localSpacesStr = localStorage.getItem('gear_spaces_list');
+        if (localSpacesStr) {
+          try {
+            const localSpaces: Space[] = JSON.parse(localSpacesStr);
+            const found = localSpaces.find(s => s.vercelProjectName === slug || s.id === slug);
+            if (found) {
+              const filesStr = localStorage.getItem(`gear_files_${found.id}`);
+              const files: FileData[] = filesStr ? JSON.parse(filesStr) : [];
+              const combined = generateCombinedCode(files);
+              setViewCombinedCode(combined);
+              setViewSpace({ space: found, files });
+              return;
+            }
+          } catch (e) {}
+        }
+        throw new Error('Space not found');
+      }
+
       // Try to find space by vercel_project_name (which we use as slug) or ID
       const { data: spaceData, error: spaceError } = await supabase
         .from('spaces')
@@ -366,12 +376,12 @@ export default function App() {
         isPrivate: spaceData.is_private
       };
 
-      const files: FileData[] = filesData.map(f => ({ name: f.file_name, content: f.content }));
+      const files: FileData[] = (filesData || []).map(f => ({ name: f.file_name, content: f.content }));
       const combined = generateCombinedCode(files);
       setViewCombinedCode(combined);
       setViewSpace({ space, files });
-    } catch (err) {
-      console.error('Error loading space for view:', err);
+    } catch (err: any) {
+      console.warn('Notice loading space for view:', err?.message || err);
       setCurrentPage('landing');
     } finally {
       setIsViewLoading(false);
@@ -514,9 +524,9 @@ export default function App() {
     loadSpaceMessages(currentSpace.id);
   }, []);
 
-  // Load spaces from Supabase when user is authenticated
+  // Load spaces from Supabase when user is authenticated and Supabase is configured
   useEffect(() => {
-    if (!session?.user?.id) return;
+    if (!session?.user?.id || !isSupabaseConfigured) return;
 
     const loadSpaces = async () => {
       try {
@@ -526,7 +536,10 @@ export default function App() {
           .eq('user_id', session.user.id)
           .order('updated_at', { ascending: false });
 
-        if (error) throw error;
+        if (error) {
+          console.warn('Notice loading spaces from Supabase:', error.message);
+          return;
+        }
         if (data && data.length > 0) {
           const formattedSpaces: Space[] = data.map(s => ({
             id: s.id,
@@ -555,8 +568,8 @@ export default function App() {
             loadSpaceMessages(formattedSpaces[0].id);
           }
         }
-      } catch (err) {
-        console.error('Error loading spaces from Supabase:', err);
+      } catch (err: any) {
+        console.warn('Notice loading spaces from Supabase (using local spaces):', err?.message || err);
       }
     };
 
@@ -589,16 +602,17 @@ export default function App() {
       setEnvVars([]);
     }
 
-    // 2. Fetch from Supabase if authenticated
-    if (session?.user?.id && spaceId !== '0') {
+    // 2. Fetch from Supabase if authenticated and Supabase is configured
+    if (isSupabaseConfigured && session?.user?.id && spaceId !== '0') {
       try {
         const { data, error } = await supabase
           .from('space_files')
           .select('*')
           .eq('space_id', spaceId);
 
-        if (error) throw error;
-        if (data && data.length > 0) {
+        if (error) {
+          console.warn('Notice loading space files from Supabase:', error.message);
+        } else if (data && data.length > 0) {
           const loadedFiles = data.map(f => ({ name: f.file_name, content: f.content }));
           setFiles(loadedFiles);
           localStorage.setItem(`gear_files_${spaceId}`, JSON.stringify(loadedFiles));
@@ -616,8 +630,8 @@ export default function App() {
           }
           return;
         }
-      } catch (err) {
-        console.error('Error loading space files from Supabase:', err);
+      } catch (err: any) {
+        console.warn('Notice loading space files from Supabase (using local files):', err?.message || err);
       }
     }
 
@@ -626,7 +640,136 @@ export default function App() {
       const initialTemplate: FileData[] = [
         {
           name: 'index.html',
-          content: `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>New Space</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4">\n  <div class="text-center space-y-4">\n    <h1 class="text-3xl font-bold text-indigo-400">Welcome</h1>\n    <p class="text-gray-400 text-sm">Start chatting with Gear AI to build your application.</p>\n  </div>\n</body>\n</html>`
+          content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Standard Web Workspace</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <h1 id="title">Standard Web Workspace</h1>
+      <p id="tagline">Built with HTML5, CSS3, JavaScript, and JSON</p>
+    </header>
+    <section class="card">
+      <p id="message">Loading data...</p>
+      <button id="action-btn" class="primary-btn">Click Me</button>
+    </section>
+  </main>
+  <script type="module" src="main.js"></script>
+</body>
+</html>`
+        },
+        {
+          name: 'styles.css',
+          content: `/* Modern Clean Stylesheet */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #0f172a;
+  color: #f8fafc;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.container {
+  max-width: 540px;
+  width: 100%;
+}
+
+.header {
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.header h1 {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #38bdf8;
+  margin-bottom: 8px;
+}
+
+.header p {
+  color: #94a3b8;
+  font-size: 0.95rem;
+}
+
+.card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  padding: 24px;
+  text-align: center;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+}
+
+.card p {
+  font-size: 1.1rem;
+  color: #e2e8f0;
+  margin-bottom: 20px;
+}
+
+.primary-btn {
+  background: #0284c7;
+  color: #ffffff;
+  border: none;
+  padding: 10px 20px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.primary-btn:hover {
+  background: #0369a1;
+  transform: translateY(-1px);
+}`
+        },
+        {
+          name: 'main.js',
+          content: `// Client-side JavaScript
+import data from './data.json';
+
+document.addEventListener('DOMContentLoaded', () => {
+  const messageEl = document.getElementById('message');
+  const actionBtn = document.getElementById('action-btn');
+
+  if (messageEl && data?.greeting) {
+    messageEl.textContent = data.greeting;
+  }
+
+  let count = 0;
+  if (actionBtn) {
+    actionBtn.addEventListener('click', () => {
+      count++;
+      actionBtn.textContent = \`Clicked \${count} time\${count === 1 ? '' : 's'}\`;
+      if (messageEl) {
+        messageEl.textContent = \`Interactive update #\${count} recorded at \${new Date().toLocaleTimeString()}\`;
+      }
+    });
+  }
+});`
+        },
+        {
+          name: 'data.json',
+          content: JSON.stringify({
+            appName: "Standard Web App",
+            greeting: "Hello from data.json! Your standard web environment is ready.",
+            version: "1.0.0",
+            features: ["HTML5", "CSS3", "JavaScript", "JSON"]
+          }, null, 2)
         }
       ];
       setFiles(initialTemplate);
@@ -654,8 +797,8 @@ export default function App() {
       setMessages([]);
     }
 
-    // 2. Fetch from Supabase if authenticated
-    if (session?.user?.id && spaceId !== '0') {
+    // 2. Fetch from Supabase if authenticated and Supabase is configured
+    if (isSupabaseConfigured && session?.user?.id && spaceId !== '0') {
       try {
         const { data, error } = await supabase
           .from('space_messages')
@@ -663,8 +806,9 @@ export default function App() {
           .eq('space_id', spaceId)
           .order('created_at', { ascending: true });
 
-        if (error) throw error;
-        if (data && data.length > 0) {
+        if (error) {
+          console.warn('Notice loading space messages from Supabase:', error.message);
+        } else if (data && data.length > 0) {
           const loadedMessages: Message[] = data.map(m => ({
             id: m.id,
             role: m.role as 'user' | 'ai',
@@ -677,8 +821,8 @@ export default function App() {
         } else if (!foundLocal) {
           setMessages([]);
         }
-      } catch (err) {
-        console.error('Error loading space messages from Supabase:', err);
+      } catch (err: any) {
+        console.warn('Notice loading space messages from Supabase (using local messages):', err?.message || err);
       }
     }
   };
@@ -719,7 +863,7 @@ export default function App() {
   }, [currentSpace?.id, messages]);
 
   const syncSpaceToSupabase = async (space: Space, spaceFiles: FileData[], spaceMessages: Message[]) => {
-    if (!session?.user?.id || space.id === '0') return;
+    if (!isSupabaseConfigured || !session?.user?.id || space.id === '0') return;
 
     try {
       setIsSyncing(true);
@@ -737,7 +881,10 @@ export default function App() {
           updated_at: new Date().toISOString()
         });
 
-      if (spaceError) throw spaceError;
+      if (spaceError) {
+        console.warn('Notice syncing space metadata:', spaceError.message);
+        return;
+      }
 
       // 2. Sync Files
       for (const file of spaceFiles) {
@@ -750,7 +897,9 @@ export default function App() {
             updated_at: new Date().toISOString()
           }, { onConflict: 'space_id,file_name' });
         
-        if (fileError) throw fileError;
+        if (fileError) {
+          console.warn('Notice syncing file:', file.name, fileError.message);
+        }
       }
 
       // 3. Sync Messages
@@ -769,10 +918,12 @@ export default function App() {
           .from('space_messages')
           .upsert(messagesToSync, { onConflict: 'id' });
 
-        if (msgError) throw msgError;
+        if (msgError) {
+          console.warn('Notice syncing messages:', msgError.message);
+        }
       }
-    } catch (err) {
-      console.error('Error syncing to Supabase:', err);
+    } catch (err: any) {
+      console.warn('Notice syncing to Supabase (saved locally):', err?.message || err);
     } finally {
       setIsSyncing(false);
     }
@@ -808,8 +959,140 @@ export default function App() {
       status: 'draft'
     };
     
-    const initialFiles = [
-      { name: 'index.html', content: '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>' + newSpaceName + '</title>\n  <script src="https://cdn.tailwindcss.com"></script>\n</head>\n<body class="bg-gray-50 text-gray-900 font-sans">\n  <div id="app" class="p-8">\n    <h1 class="text-4xl font-black tracking-tighter mb-4">' + newSpaceName + '</h1>\n    <p class="text-gray-500">' + (newSpaceDescription || 'Welcome to your new Gear Studio space.') + '</p>\n  </div>\n</body>\n</html>' }
+    const initialFiles: FileData[] = [
+      {
+        name: 'index.html',
+        content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${newSpaceName}</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <h1 id="title">${newSpaceName}</h1>
+      <p id="tagline">${newSpaceDescription || 'Standard Web Application'}</p>
+    </header>
+    <section class="card">
+      <p id="message">Loading data...</p>
+      <button id="action-btn" class="primary-btn">Click Me</button>
+    </section>
+  </main>
+  <script type="module" src="main.js"></script>
+</body>
+</html>`
+      },
+      {
+        name: 'styles.css',
+        content: `/* Modern Clean Stylesheet */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #0f172a;
+  color: #f8fafc;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.container {
+  max-width: 540px;
+  width: 100%;
+}
+
+.header {
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.header h1 {
+  font-size: 2rem;
+  font-weight: 800;
+  color: #38bdf8;
+  margin-bottom: 8px;
+}
+
+.header p {
+  color: #94a3b8;
+  font-size: 0.95rem;
+}
+
+.card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  padding: 24px;
+  text-align: center;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+}
+
+.card p {
+  font-size: 1.1rem;
+  color: #e2e8f0;
+  margin-bottom: 20px;
+}
+
+.primary-btn {
+  background: #0284c7;
+  color: #ffffff;
+  border: none;
+  padding: 10px 20px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.primary-btn:hover {
+  background: #0369a1;
+  transform: translateY(-1px);
+}`
+      },
+      {
+        name: 'main.js',
+        content: `// Client-side JavaScript
+import data from './data.json';
+
+document.addEventListener('DOMContentLoaded', () => {
+  const messageEl = document.getElementById('message');
+  const actionBtn = document.getElementById('action-btn');
+
+  if (messageEl && data?.greeting) {
+    messageEl.textContent = data.greeting;
+  }
+
+  let count = 0;
+  if (actionBtn) {
+    actionBtn.addEventListener('click', () => {
+      count++;
+      actionBtn.textContent = \`Clicked \${count} time\${count === 1 ? '' : 's'}\`;
+      if (messageEl) {
+        messageEl.textContent = \`Interactive update #\${count} recorded at \${new Date().toLocaleTimeString()}\`;
+      }
+    });
+  }
+});`
+      },
+      {
+        name: 'data.json',
+        content: JSON.stringify({
+          appName: newSpaceName,
+          greeting: "Hello from data.json! Your standard web environment is ready.",
+          version: "1.0.0",
+          features: ["HTML5", "CSS3", "JavaScript", "JSON"]
+        }, null, 2)
+      }
     ];
 
     const updatedSpaces = [newSpace, ...spaces];
@@ -838,109 +1121,64 @@ export default function App() {
     setShowCreateSpaceModal(true);
   };
 
-  const handleToggleExtension = (extensionId: string) => {
-    setExtensions(prev => {
-      const updated = prev.map(ext => ext.id === extensionId ? { ...ext, enabled: !ext.enabled } : ext);
-      localStorage.setItem('gear_extensions', JSON.stringify(updated));
-      return updated;
-    });
+  const handleCreateNewFile = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = newFileName.trim();
+    if (!trimmed) {
+      setIsCreatingFile(false);
+      return;
+    }
+    if (files.some(f => f.name.toLowerCase() === trimmed.toLowerCase())) {
+      setIsCreatingFile(false);
+      setNewFileName('');
+      return;
+    }
+    let defaultContent = '';
+    if (trimmed.endsWith('.html')) {
+      defaultContent = '<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <title>New Page</title>\n  <link rel="stylesheet" href="styles.css">\n</head>\n<body>\n  <h1>New Page</h1>\n</body>\n</html>';
+    } else if (trimmed.endsWith('.css')) {
+      defaultContent = '/* Stylesheet */\n';
+    } else if (trimmed.endsWith('.json')) {
+      defaultContent = '{\n  \n}\n';
+    } else if (trimmed.endsWith('.js')) {
+      defaultContent = '// JavaScript module\n';
+    }
+    const updated = [...files, { name: trimmed, content: defaultContent }];
+    setFiles(updated);
+    setActiveFileIndex(updated.length - 1);
+    if (currentSpace?.id) {
+      localStorage.setItem(`gear_files_${currentSpace.id}`, JSON.stringify(updated));
+    }
+    setNewFileName('');
+    setIsCreatingFile(false);
+  };
+
+  const handleDeleteFile = (fileName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (files.length <= 1) return;
+    const updated = files.filter(f => f.name !== fileName);
+    setFiles(updated);
+    setActiveFileIndex(0);
+    if (currentSpace?.id) {
+      localStorage.setItem(`gear_files_${currentSpace.id}`, JSON.stringify(updated));
+    }
   };
 
   const handleRunDiagnostic = () => {
-    setDiagnosticStatus('Testing Vite Runner, Python 3.11 Runtime, and Node.js LTS engines...');
+    setDiagnosticStatus('Verifying standard website structure (HTML, CSS, JS, JSON)...');
     setTimeout(() => {
-      setDiagnosticStatus('✓ All 3 Extensions Verified & Active: Vite 5.4.1, Python 3.11.8, Node.js 20.12.2');
-      setTimeout(() => setDiagnosticStatus(null), 6000);
-    }, 800);
-  };
-
-  const handleRunPython = async (targetFileName?: string) => {
-    const fileToRun = targetFileName
-      ? files.find(f => f.name === targetFileName)
-      : files[activeFileIndex]?.name.endsWith('.py')
-        ? files[activeFileIndex]
-        : files.find(f => f.name.endsWith('.py')) || files[activeFileIndex];
-
-    if (!fileToRun) {
-      setPythonOutput(prev => [
-        ...prev,
-        { text: '⚠️ No Python (.py) file found to run. Create a file like main.py first.', type: 'stderr', time: new Date().toLocaleTimeString() }
-      ]);
-      setShowLogs(true);
-      setTerminalTab('python');
-      return;
-    }
-
-    setShowLogs(true);
-    setTerminalTab('python');
-    setIsRunningScript(true);
-
-    const envObj: Record<string, string> = {};
-    envVars.forEach(v => { if (v?.name) envObj[v.name] = v.value || ''; });
-
-    await runPythonCode(
-      fileToRun.content,
-      fileToRun.name,
-      files,
-      envObj,
-      (line, type) => {
-        setPythonOutput(prev => [
-          ...prev,
-          { text: line, type, time: new Date().toLocaleTimeString() }
-        ]);
-      }
-    );
-    setIsRunningScript(false);
-  };
-
-  const handleRunNode = async (targetFileName?: string) => {
-    const fileToRun = targetFileName
-      ? files.find(f => f.name === targetFileName)
-      : (files[activeFileIndex]?.name.endsWith('.js') || files[activeFileIndex]?.name.endsWith('.ts'))
-        ? files[activeFileIndex]
-        : files.find(f => f.name.endsWith('.js') || f.name.endsWith('.ts')) || files[activeFileIndex];
-
-    if (!fileToRun) {
-      setNodeOutput(prev => [
-        ...prev,
-        { text: '⚠️ No JavaScript/Node (.js/.ts) file found to run. Create a file like server.js or index.js first.', type: 'stderr', time: new Date().toLocaleTimeString() }
-      ]);
-      setShowLogs(true);
-      setTerminalTab('node');
-      return;
-    }
-
-    setShowLogs(true);
-    setTerminalTab('node');
-    setIsRunningScript(true);
-
-    const envObj: Record<string, string> = {};
-    envVars.forEach(v => { if (v?.name) envObj[v.name] = v.value || ''; });
-
-    await runNodeCode(
-      fileToRun.content,
-      fileToRun.name,
-      files,
-      envObj,
-      (line, type) => {
-        setNodeOutput(prev => [
-          ...prev,
-          { text: line, type, time: new Date().toLocaleTimeString() }
-        ]);
-      }
-    );
-    setIsRunningScript(false);
+      const hasHtml = files.some(f => f.name.endsWith('.html'));
+      const hasCss = files.some(f => f.name.endsWith('.css'));
+      const hasJs = files.some(f => f.name.endsWith('.js'));
+      const hasJson = files.some(f => f.name.endsWith('.json'));
+      setDiagnosticStatus(`✓ Website Status: HTML (${hasHtml ? 'Present' : 'None'}), CSS (${hasCss ? 'Present' : 'None'}), JS (${hasJs ? 'Present' : 'None'}), JSON (${hasJson ? 'Present' : 'None'})`);
+      setTimeout(() => setDiagnosticStatus(null), 5000);
+    }, 600);
   };
 
   const handleRunActiveFile = () => {
-    const activeName = files[activeFileIndex]?.name || '';
-    if (activeName.endsWith('.py')) {
-      handleRunPython();
-    } else if (activeName.endsWith('.js') || activeName.endsWith('.ts')) {
-      handleRunNode();
-    } else {
-      setShowPreview(true);
-    }
+    setShowPreview(true);
+    setPreviewKey(k => k + 1);
   };
 
   const handleExecuteTerminalCommand = async (rawCmd: string) => {
@@ -951,8 +1189,6 @@ export default function App() {
 
     if (cmd === 'clear') {
       setTerminalHistory([]);
-      setPythonOutput([]);
-      setNodeOutput([]);
       setLogs([]);
       return;
     }
@@ -962,7 +1198,7 @@ export default function App() {
         ...prev,
         {
           command: cmd,
-          output: 'Available commands:\n  python <file.py>  - Execute Python 3.11 script\n  node <file.js>    - Execute Node.js LTS script\n  vite             - Launch Vite Dev Server & HMR preview\n  extensions       - List installed multi-runtime extensions\n  models           - Show active AI project builders (ionic / iconic)\n  ls               - List workspace files\n  clear            - Clear terminal output',
+          output: 'Available commands:\n  preview           - Launch & refresh live website preview\n  ls                - List all website files\n  cat <file>        - View file contents\n  touch <file>      - Create a new web file\n  rm <file>         - Remove a web file\n  models            - Show active AI models\n  clear             - Clear terminal screen',
           time
         }
       ]);
@@ -973,17 +1209,81 @@ export default function App() {
       const fileList = files.map(f => `  ${f.name} (${f.content.length} bytes)`).join('\n');
       setTerminalHistory(prev => [
         ...prev,
-        { command: cmd, output: `Workspace files (${files.length}):\n${fileList}`, time }
+        { command: cmd, output: `Website files (${files.length}):\n${fileList}`, time }
       ]);
       return;
     }
 
-    if (cmd === 'extensions') {
-      const extList = extensions.map(e => `  [${e.enabled ? 'ACTIVE' : 'OFF'}] ${e.name} (${e.identifier} v${e.version}) - ${e.executionEngine}`).join('\n');
+    if (cmd === 'preview' || cmd === 'run') {
+      setShowPreview(true);
+      setPreviewKey(k => k + 1);
       setTerminalHistory(prev => [
         ...prev,
-        { command: cmd, output: `Gear Extensions (${extensions.length}):\n${extList}`, time }
+        { command: cmd, output: '✓ Refreshed live website preview.', time }
       ]);
+      return;
+    }
+
+    if (cmd.startsWith('cat ')) {
+      const targetName = cmd.replace(/^cat\s+/, '').trim();
+      const targetFile = files.find(f => f.name.toLowerCase() === targetName.toLowerCase());
+      if (targetFile) {
+        setTerminalHistory(prev => [
+          ...prev,
+          { command: cmd, output: targetFile.content || '(empty file)', time }
+        ]);
+      } else {
+        setTerminalHistory(prev => [
+          ...prev,
+          { command: cmd, output: `cat: ${targetName}: No such file`, time }
+        ]);
+      }
+      return;
+    }
+
+    if (cmd.startsWith('touch ')) {
+      const targetName = cmd.replace(/^touch\s+/, '').trim();
+      if (targetName) {
+        if (!files.some(f => f.name.toLowerCase() === targetName.toLowerCase())) {
+          const updated = [...files, { name: targetName, content: '' }];
+          setFiles(updated);
+          setActiveFileIndex(updated.length - 1);
+          if (currentSpace?.id) {
+            localStorage.setItem(`gear_files_${currentSpace.id}`, JSON.stringify(updated));
+          }
+          setTerminalHistory(prev => [
+            ...prev,
+            { command: cmd, output: `✓ Created file: ${targetName}`, time }
+          ]);
+        } else {
+          setTerminalHistory(prev => [
+            ...prev,
+            { command: cmd, output: `File ${targetName} already exists`, time }
+          ]);
+        }
+      }
+      return;
+    }
+
+    if (cmd.startsWith('rm ')) {
+      const targetName = cmd.replace(/^rm\s+/, '').trim();
+      if (targetName && files.length > 1) {
+        const updated = files.filter(f => f.name.toLowerCase() !== targetName.toLowerCase());
+        setFiles(updated);
+        setActiveFileIndex(0);
+        if (currentSpace?.id) {
+          localStorage.setItem(`gear_files_${currentSpace.id}`, JSON.stringify(updated));
+        }
+        setTerminalHistory(prev => [
+          ...prev,
+          { command: cmd, output: `✓ Removed file: ${targetName}`, time }
+        ]);
+      } else {
+        setTerminalHistory(prev => [
+          ...prev,
+          { command: cmd, output: `Cannot remove file (workspace requires at least 1 file)`, time }
+        ]);
+      }
       return;
     }
 
@@ -992,43 +1292,10 @@ export default function App() {
         ...prev,
         {
           command: cmd,
-          output: `Active Model: ${activeModel.toUpperCase()}\n  • ionic: GPT OSS 120B Full Project Builder (Deep Architecture)\n  • iconic: Groq Compound Full Project Builder (Speculative Token Inference)`,
+          output: `Active Model: ${activeModel.toUpperCase()}\n  • ionic: Deep Architecture Web Builder\n  • iconic: High-Speed Web Builder`,
           time
         }
       ]);
-      return;
-    }
-
-    if (cmd === 'vite' || cmd === 'npm run dev') {
-      setShowPreview(true);
-      setTerminalHistory(prev => [
-        ...prev,
-        {
-          command: cmd,
-          output: '⚡ [Vite Runner] Dev server active at http://localhost:5173/\n→ React 18 HMR active\n→ Tailwind CSS JIT compiler active',
-          time
-        }
-      ]);
-      return;
-    }
-
-    if (cmd.startsWith('python ') || cmd.startsWith('python3 ')) {
-      const targetFile = cmd.split(' ')[1];
-      setTerminalHistory(prev => [
-        ...prev,
-        { command: cmd, output: `[Executing Python 3.11 via Pyodide/Gear Runner: ${targetFile}]`, time }
-      ]);
-      await handleRunPython(targetFile);
-      return;
-    }
-
-    if (cmd.startsWith('node ')) {
-      const targetFile = cmd.split(' ')[1];
-      setTerminalHistory(prev => [
-        ...prev,
-        { command: cmd, output: `[Executing Node.js 20 LTS runner: ${targetFile}]`, time }
-      ]);
-      await handleRunNode(targetFile);
       return;
     }
 
@@ -1037,7 +1304,7 @@ export default function App() {
       ...prev,
       {
         command: cmd,
-        output: `command not found: ${cmd}. Type 'help' for a list of available commands.`,
+        output: `command not found: ${cmd}. Type 'help' for available commands.`,
         time
       }
     ]);
@@ -1052,11 +1319,11 @@ export default function App() {
     localStorage.removeItem(`gear_files_${id}`);
     localStorage.removeItem(`gear_env_${id}`);
     
-    if (session?.user?.id) {
+    if (isSupabaseConfigured && session?.user?.id) {
       try {
         await supabase.from('spaces').delete().eq('id', id);
-      } catch (err) {
-        console.error('Error deleting space from Supabase:', err);
+      } catch (err: any) {
+        console.warn('Notice deleting space from Supabase:', err?.message || err);
       }
     }
 
@@ -1085,17 +1352,47 @@ export default function App() {
   useEffect(() => {
     // 1. Try Supabase session if configured
     if (isSupabaseConfigured) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          setSession(session);
-        }
-      });
+      supabase.auth.getSession()
+        .then((res) => {
+          if (res?.data?.session) {
+            setSession(res.data.session);
+          } else {
+            // Check fallback local session if any
+            try {
+              const stored = localStorage.getItem('gear_auth_session');
+              if (stored) {
+                const parsed = JSON.parse(stored);
+                if (parsed?.user) setSession(parsed);
+              }
+            } catch (e) {}
+          }
+        })
+        .catch((err) => {
+          console.warn('Initial session check note:', err?.message || err);
+          try {
+            const stored = localStorage.getItem('gear_auth_session');
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              if (parsed?.user) setSession(parsed);
+            }
+          } catch (e) {}
+        });
 
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        setSession(session);
-      });
+      let unsubscribe: (() => void) | undefined;
+      try {
+        const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+          if (session) {
+            setSession(session);
+          }
+        });
+        unsubscribe = () => data?.subscription?.unsubscribe();
+      } catch (err) {
+        console.warn('Supabase auth state listener note:', err);
+      }
 
-      return () => subscription.unsubscribe();
+      return () => {
+        if (unsubscribe) unsubscribe();
+      };
     } else {
       // 2. Local session recovery when Supabase is not configured
       try {
@@ -1537,14 +1834,7 @@ export default function App() {
       } catch (e) {}
     }
 
-    // 4. Default fallbacks if GROQ_API_KEY or GEMINI_API_KEY are not defined but stored locally
-    if (!envObj['GROQ_API_KEY'] && !envObj['GROQ_KEY']) {
-      const savedGroqKey = localStorage.getItem('gear_groq_key') || (import.meta.env.VITE_GROQ_API_KEY as string);
-      if (savedGroqKey) {
-        envObj['GROQ_API_KEY'] = savedGroqKey;
-        envObj['GROQ_KEY'] = savedGroqKey;
-      }
-    }
+    // 4. Default fallbacks if GEMINI_API_KEY is not defined but stored locally
     if (!envObj['GEMINI_API_KEY'] && !envObj['API_KEY']) {
       const savedKey = localStorage.getItem('gear_gemini_key') || localStorage.getItem('gear_api_key') || (import.meta.env.VITE_GEAR_API as string) || (import.meta.env.VITE_GEMINI_API_KEY as string);
       if (savedKey) {
@@ -1587,15 +1877,43 @@ export default function App() {
         importMapObj.imports[withoutSrc] = dataUri;
       }
     });
-    const importMapScript = `<script type="importmap">${JSON.stringify(importMapObj)}</script>`;
+
+    // Register JSON files in import map so `import data from './data.json'` works natively
+    const jsonFiles = spaceFiles.filter(f => f.name.endsWith('.json'));
+    jsonFiles.forEach(f => {
+      const dataUri = `data:application/json;charset=utf-8,${encodeURIComponent(f.content)}`;
+      importMapObj.imports[`./${f.name}`] = dataUri;
+      importMapObj.imports[`/${f.name}`] = dataUri;
+      importMapObj.imports[f.name] = dataUri;
+    });
+
+    // Helper to safely serialize JSON into inline script tags without breaking HTML parsers
+    const safeJsonForScript = (obj: any): string => {
+      return JSON.stringify(obj)
+        .replace(/</g, '\\u003c')
+        .replace(/>/g, '\\u003e')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
+    };
+
+    // Create virtual files map for fetch('data.json') / fetch('./styles.css') etc.
+    // Exclude .html files to prevent unescaped HTML content from breaking script blocks
+    const virtualFilesMap: Record<string, string> = {};
+    spaceFiles.forEach(f => {
+      if (!f.name.endsWith('.html')) {
+        virtualFilesMap[f.name] = f.content;
+        virtualFilesMap['./' + f.name] = f.content;
+        virtualFilesMap['/' + f.name] = f.content;
+      }
+    });
+    const importMapScript = `<script type="importmap">${safeJsonForScript(importMapObj)}</script>`;
 
     const scripts = jsFiles.map(f => {
-      let content = f.content.replace(/import\s+.*?\s+from\s+['"].*?['"];?/g, '');
-      // Ensure import.meta.env and process.env get rewritten safely for the browser
-      content = content.replace(/import\.meta\.env/g, '(window.importMetaEnv || window.process.env || window.ENV)');
+      let content = f.content.replace(/import\.meta\.env/g, '(window.importMetaEnv || window.process.env || window.ENV)');
+      const safeContent = content.replace(/<\/script>/gi, '<\\/script>');
       return `
         <script type="module" data-filename="${f.name}">
-          ${content}
+          ${safeContent}
         </script>
       `;
     }).join('\n');
@@ -1608,7 +1926,7 @@ export default function App() {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <script>
             (function() {
-              var env = ${JSON.stringify(envObj)};
+              var env = ${safeJsonForScript(envObj)};
               
               // Polyfill process and process.env
               window.process = window.process || {};
@@ -1654,6 +1972,26 @@ export default function App() {
               try {
                 window.dispatchEvent(new CustomEvent('gear:env-ready', { detail: env }));
               } catch(e) {}
+
+              // Virtual fetch interceptor for local files (data.json, styles.css, etc.)
+              var virtualFiles = ${safeJsonForScript(virtualFilesMap)};
+              var origFetch = window.fetch;
+              window.fetch = function(input, init) {
+                var urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : String(input));
+                var clean = urlStr.replace(/^https?:\/\/[^\/]+\//, '').replace(/^\.\//, '');
+                if (virtualFiles[urlStr] !== undefined || virtualFiles[clean] !== undefined || virtualFiles['./' + clean] !== undefined) {
+                  var fileData = virtualFiles[urlStr] !== undefined ? virtualFiles[urlStr] : (virtualFiles[clean] !== undefined ? virtualFiles[clean] : virtualFiles['./' + clean]);
+                  var isJson = urlStr.endsWith('.json') || clean.endsWith('.json');
+                  return Promise.resolve(new Response(fileData, {
+                    status: 200,
+                    statusText: 'OK',
+                    headers: new Headers({
+                      'Content-Type': isJson ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8'
+                    })
+                  }));
+                }
+                return origFetch.apply(window, arguments);
+              };
             })();
           </script>
           <script src="https://cdn.tailwindcss.com"></script>
@@ -1921,10 +2259,9 @@ export default function App() {
           ${importMapScript}
           ${headContent}
           <style>
-            ${cssContent}
-            body { margin: 0; padding: 0; background: #000; color: #fff; min-height: 100vh; }
             #root { min-height: 100vh; }
             .markdown-body { color: inherit; }
+            ${cssContent}
           </style>
         </head>
         <body>
@@ -2129,7 +2466,7 @@ export default function App() {
   };
 
   const syncDeploymentToSupabase = async (spaceId: string, url: string, inspectUrl: string | null) => {
-    if (!session?.user?.id || spaceId === '0') return;
+    if (!isSupabaseConfigured || !session?.user?.id || spaceId === '0') return;
 
     try {
       const { error } = await supabase
@@ -2142,9 +2479,11 @@ export default function App() {
           created_at: new Date().toISOString()
         });
 
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error syncing deployment to Supabase:', err);
+      if (error) {
+        console.warn('Notice syncing deployment to Supabase:', error.message);
+      }
+    } catch (err: any) {
+      console.warn('Notice syncing deployment to Supabase:', err?.message || err);
     }
   };
 
@@ -2168,16 +2507,23 @@ export default function App() {
     setIsDeploying(true);
     setShowDeployModal(false);
     try {
-      // 1. Check if slug is already taken by another space
-      const { data: existingSpace } = await supabase
-        .from('spaces')
-        .select('id')
-        .eq('vercel_project_name', slug)
-        .neq('id', currentSpace.id)
-        .maybeSingle();
-        
-      if (existingSpace) {
-        throw new Error(`The URL gearstudio.space/${slug} is already taken. Please choose a different name.`);
+      // 1. Check if slug is already taken by another space (if Supabase is configured)
+      if (isSupabaseConfigured) {
+        try {
+          const { data: existingSpace } = await supabase
+            .from('spaces')
+            .select('id')
+            .eq('vercel_project_name', slug)
+            .neq('id', currentSpace.id)
+            .maybeSingle();
+            
+          if (existingSpace) {
+            throw new Error(`The URL gearstudio.space/${slug} is already taken. Please choose a different name.`);
+          }
+        } catch (checkErr: any) {
+          if (checkErr.message?.includes('already taken')) throw checkErr;
+          console.warn('Notice checking slug availability:', checkErr?.message || checkErr);
+        }
       }
 
       // 2. Deploy to Render (for backend/CDN reliability)
@@ -2240,7 +2586,7 @@ export default function App() {
   };
 
   const logUsageToSupabase = async (model: string, promptTokens?: number, completionTokens?: number) => {
-    if (!session?.user?.id) return;
+    if (!isSupabaseConfigured || !session?.user?.id) return;
 
     try {
       await supabase
@@ -2253,8 +2599,8 @@ export default function App() {
           completion_tokens: completionTokens,
           created_at: new Date().toISOString()
         });
-    } catch (err) {
-      console.error('Error logging usage to Supabase:', err);
+    } catch (err: any) {
+      console.warn('Notice logging usage to Supabase:', err?.message || err);
     }
   };
 
@@ -2302,9 +2648,9 @@ export default function App() {
 
       const stream = await generateCodeResponseStream(
         currentInput, 
-        history, 
         currentImages, 
         files, 
+        history, 
         { ...aiSettings, activeModel }, 
         envVars,
         { spaceId: targetSpaceId, spaceName: targetSpaceName }
@@ -2447,12 +2793,12 @@ export default function App() {
       // Handle Groq and Gemini error structures
       try {
         const errorData = typeof error === 'string' ? JSON.parse(error) : error;
-        if (error?.message?.includes('No Groq API Key found') || errorData?.message?.includes('No Groq API Key found')) {
-          errorMessage = "🔑 Groq Key Required: Please add your Groq API Key in Settings or click the 'Set Groq Key' button in the toolbar to power Ionic (GPT OSS 120B) and Iconic (Groq Compound).";
+        if (error?.message?.includes('No Groq API Key found') || error?.message?.includes('Intelligence Engine Key required') || errorData?.message?.includes('No Groq API Key found')) {
+          errorMessage = "🔑 Engine Key Required: Please configure your API key in Settings or click the 'Set Engine Key' button in the toolbar to power Ionic and Iconic project builders.";
         } else if (error?.message?.includes('Invalid API Key') || error?.message?.includes('gsk_') || error?.message?.includes('Groq returned')) {
-          errorMessage = `⚠️ Groq Access Error: ${error.message}. Please verify your Groq API Key in Settings.`;
+          errorMessage = `⚠️ Access Error: ${error.message}. Please verify your API Key in Settings.`;
         } else if (errorData?.error?.code === 429 || errorData?.status === 'RESOURCE_EXHAUSTED' || error?.message?.includes('429')) {
-          errorMessage = "⚠️ Quota Exceeded: You've reached the rate limit for your API key. Please wait a moment before trying again or configure your Groq key.";
+          errorMessage = "⚠️ Quota Exceeded: You've reached the rate limit for your API key. Please wait a moment before trying again.";
         } else if (errorData?.error?.code === 403 || errorData?.status === 'PERMISSION_DENIED' || error?.message?.includes('403')) {
           errorMessage = "⚠️ Permission Denied: The API key does not have permission to access the requested model. Please check your credentials in Settings.";
         } else if (errorData?.error?.message) {
@@ -2602,7 +2948,6 @@ export default function App() {
         currentPage={currentPage}
         setCurrentPage={setCurrentPage}
         onClose={() => setCurrentPage('dashboard')}
-        onOpenExtensions={() => setShowExtensionsModal(true)}
       />
     );
   }
@@ -2855,11 +3200,10 @@ export default function App() {
                   <div className="flex items-center gap-1 bg-[#141414] p-1 rounded-xl border border-[#222]">
                     <button 
                       onClick={() => setShowLogs(!showLogs)}
-                      className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${showLogs ? 'bg-white text-black shadow-md' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
-                      title="Console / Terminal (>_)"
+                      className={`p-1.5 rounded-lg transition-all flex items-center justify-center ${showLogs ? 'bg-white text-black shadow-md' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                      title="Console / Terminal"
                     >
                       <Terminal className="w-3.5 h-3.5" />
-                      <span className="text-[10px] font-bold">&gt;_</span>
                     </button>
 
                     <button 
@@ -2868,11 +3212,10 @@ export default function App() {
                         setShowPreview(false);
                         setShowEnvPage(false);
                       }}
-                      className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1 ${currentPage === 'editor' && !showPreview && !showEnvPage ? 'bg-white text-black shadow-md' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
-                      title="Code Editor (</>)"
+                      className={`p-1.5 rounded-lg transition-all flex items-center justify-center ${currentPage === 'editor' && !showPreview && !showEnvPage ? 'bg-white text-black shadow-md' : 'text-gray-400 hover:text-white hover:bg-[#222]'}`}
+                      title="Code Editor"
                     >
                       <Code className="w-3.5 h-3.5" />
-                      <span className="text-[10px] font-bold">&lt;/&gt;</span>
                     </button>
 
                     <button 
@@ -2898,16 +3241,7 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Gear Extensions Button */}
-                  <button
-                    onClick={() => setShowExtensionsModal(true)}
-                    className="px-2.5 py-1 bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] hover:border-emerald-500/50 text-gray-300 hover:text-white rounded-xl text-[11px] font-bold transition-all flex items-center gap-1.5"
-                    title="Manage Extensions (Vite Runner, Python 3.11, Node.js LTS)"
-                  >
-                    <Puzzle className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="hidden sm:inline">Extensions</span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  </button>
+
 
                   {/* Model Switcher Pill */}
                   <button
@@ -2921,42 +3255,35 @@ export default function App() {
                         ? 'bg-amber-950/70 border-amber-600/60 text-amber-300 hover:bg-amber-900/70'
                         : 'bg-blue-950/70 border-blue-600/60 text-blue-300 hover:bg-blue-900/70'
                     }`}
-                    title={`Active Engine: ${activeModel === 'ionic' ? 'Ionic (GPT OSS 120B Full Project Builder)' : 'Iconic (Groq Compound Project Builder)'}. Click to switch.`}
+                    title={`Active Engine: ${activeModel === 'ionic' ? 'Ionic (Gemini 3 Flash)' : 'Iconic (Gemini 3.1 Flash Lite / 3.5 Flash Lite fallback)'}. Click to switch.`}
                   >
                     {activeModel === 'ionic' ? (
                       <>
                         <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                         <span className="font-mono">ionic</span>
-                        <span className="text-[9px] px-1 py-0.2 bg-amber-900/80 rounded text-amber-200">120b</span>
+                        <span className="text-[9px] px-1 py-0.2 bg-amber-900/80 rounded text-amber-200">gemini 3</span>
                       </>
                     ) : (
                       <>
                         <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
                         <span className="font-mono">iconic</span>
-                        <span className="text-[9px] px-1 py-0.2 bg-blue-900/80 rounded text-blue-200">groq</span>
+                        <span className="text-[9px] px-1 py-0.2 bg-blue-900/80 rounded text-blue-200">gemini 3.1</span>
                       </>
                     )}
                   </button>
 
-                  {/* Groq Key Quick Status / Trigger */}
-                  <button
-                    onClick={() => setCurrentPage('settings')}
+                  {/* Engine Status Indicator */}
+                  <div
                     id="top-bar-groq-key-pill"
-                    className={`px-2 py-1 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${
-                      localStorage.getItem('gear_groq_key')
-                        ? 'bg-[#141414] hover:bg-neutral-800 border-neutral-700 text-emerald-400'
-                        : 'bg-amber-500 hover:bg-amber-400 text-black border-amber-400 shadow-sm shadow-amber-500/20 animate-pulse'
-                    }`}
-                    title={localStorage.getItem('gear_groq_key') ? "Groq API Key Active. Click to manage in Settings." : "Connect your Groq API Key to access Ionic and Iconic"}
+                    className="px-2 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1.5 border bg-[#141414] border-neutral-800 text-emerald-400 select-none"
+                    title="Platform-Managed Engine Active"
                   >
-                    <Key className="w-3 h-3" />
+                    <Key className="w-3 h-3 text-emerald-400" />
                     <span className="font-mono text-[10px]">
-                      {localStorage.getItem('gear_groq_key') ? 'Groq Active' : 'Set Groq Key'}
+                      Engine Active
                     </span>
-                    {localStorage.getItem('gear_groq_key') && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    )}
-                  </button>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  </div>
                 </div>
 
                 {/* Right controls: Secrets, Plugins, Export, Help, Three Dot Menu (containing Versions & Push to Team) */}
@@ -3194,8 +3521,7 @@ export default function App() {
                             <button 
                               onClick={async () => {
                                 setIsMenuOpen(false);
-                                await supabase.auth.signOut();
-                                setCurrentPage('landing');
+                                await handleLogout();
                               }}
                               className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-neutral-400 hover:text-white hover:bg-neutral-900 transition-all cursor-pointer"
                             >
@@ -3214,19 +3540,74 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar: File Explorer - ONLY shown when inside the project editor */}
         {!showPreview && currentPage === 'editor' && (
-          <div className="w-48 border-r border-[#262626] flex flex-col bg-[#0F0F0F]">
-            <div className="p-4 border-b border-[#262626]">
-              <p className="text-[9px] font-bold text-gray-500 leading-tight uppercase tracking-wider">
-                AI Coded Files & Folders
-                <br />
-                <span className="text-neutral-500 italic lowercase font-normal">click to edit manually</span>
-              </p>
+          <div className="w-52 border-r border-[#262626] flex flex-col bg-[#0F0F0F] shrink-0 select-none">
+            <div className="p-3 border-b border-[#262626] flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Globe className="w-3 h-3 text-sky-400" />
+                  Website Files
+                </p>
+                <p className="text-[9px] text-neutral-500 font-mono">html, css, js, json</p>
+              </div>
+              <button
+                onClick={() => setIsCreatingFile(true)}
+                className="p-1 hover:bg-[#222] text-gray-400 hover:text-white rounded transition-colors"
+                title="Create New Web File"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
             </div>
+
+            {/* Inline file creator */}
+            {isCreatingFile && (
+              <form onSubmit={handleCreateNewFile} className="p-2 border-b border-[#262626] bg-[#141414]">
+                <div className="flex items-center gap-1.5 bg-[#0A0A0A] border border-blue-500/50 rounded px-2 py-1">
+                  <FileCode className="w-3 h-3 text-blue-400 shrink-0" />
+                  <input
+                    autoFocus
+                    type="text"
+                    value={newFileName}
+                    onChange={(e) => setNewFileName(e.target.value)}
+                    placeholder="e.g. about.html, script.js"
+                    className="w-full bg-transparent text-xs text-white placeholder:text-neutral-600 focus:outline-none font-mono"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setIsCreatingFile(false);
+                        setNewFileName('');
+                      }
+                    }}
+                  />
+                </div>
+                <div className="flex justify-end gap-1 mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingFile(false);
+                      setNewFileName('');
+                    }}
+                    className="px-2 py-0.5 text-[9px] text-neutral-400 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-2 py-0.5 text-[9px] bg-blue-600 hover:bg-blue-500 text-white font-bold rounded"
+                  >
+                    Add
+                  </button>
+                </div>
+              </form>
+            )}
+
             <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
               {files.map((file, idx) => {
                 if (file.name === '.env.json') return null;
+                const lower = file.name.toLowerCase();
+                const IconComponent = lower.endsWith('.html') ? Globe : lower.endsWith('.css') ? Palette : lower.endsWith('.json') ? Braces : FileCode;
+                const iconColor = lower.endsWith('.html') ? 'text-orange-400' : lower.endsWith('.css') ? 'text-sky-400' : lower.endsWith('.json') ? 'text-amber-400' : 'text-yellow-400';
+
                 return (
-                  <button
+                  <div
                     key={file.name}
                     onClick={() => {
                       setActiveFileIndex(idx);
@@ -3234,22 +3615,29 @@ export default function App() {
                       setShowPreview(false);
                       setShowEnvPage(false);
                     }}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-xs flex items-center gap-3 transition-all group ${
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between gap-2 transition-all cursor-pointer group ${
                       activeFileIndex === idx && currentPage === 'editor'
-                        ? 'bg-white text-black font-semibold border border-neutral-300' 
-                        : 'hover:bg-[#1A1A1A] text-gray-500 hover:text-gray-300'
-                    } ${Object.values(codingFiles).includes(file.name) ? 'ring-1 ring-white/50 animate-pulse' : ''}`}
+                        ? 'bg-neutral-800 text-white font-semibold border border-neutral-700' 
+                        : 'hover:bg-[#1A1A1A] text-gray-400 hover:text-gray-200'
+                    } ${Object.values(codingFiles).includes(file.name) ? 'ring-1 ring-blue-500/50 animate-pulse' : ''}`}
                   >
-                    <FileCode className={`w-3.5 h-3.5 ${activeFileIndex === idx && currentPage === 'editor' ? 'text-black' : 'text-gray-600 group-hover:text-gray-400'}`} />
-                    <span className="truncate flex-1">{file.name}</span>
-                    {Object.values(codingFiles).includes(file.name) && (
-                      <div className="flex gap-0.5">
-                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1 h-1 bg-white rounded-full" />
-                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.2 }} className="w-1 h-1 bg-white rounded-full" />
-                        <motion.div animate={{ scale: [1, 1.5, 1] }} transition={{ repeat: Infinity, duration: 1, delay: 0.4 }} className="w-1 h-1 bg-white rounded-full" />
-                      </div>
-                    )}
-                  </button>
+                    <div className="flex items-center gap-2 truncate min-w-0">
+                      <IconComponent className={`w-3.5 h-3.5 shrink-0 ${activeFileIndex === idx && currentPage === 'editor' ? 'text-white' : iconColor}`} />
+                      <span className="truncate text-xs font-mono">{file.name}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {files.length > 1 && (
+                        <button
+                          onClick={(e) => handleDeleteFile(file.name, e)}
+                          className="p-0.5 text-neutral-500 hover:text-red-400 rounded transition-colors"
+                          title={`Delete ${file.name}`}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 );
               })}
             </div>
@@ -3314,10 +3702,7 @@ export default function App() {
               authEmail={authEmail}
               activeModel={activeModel}
               setCurrentPage={setCurrentPage}
-              handleSignOut={async () => {
-                await supabase.auth.signOut();
-                setCurrentPage('landing');
-              }}
+              handleSignOut={handleLogout}
             />
           ) : currentPage === 'integrations' ? (
             <IntegrationsPage
@@ -3606,74 +3991,8 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Multi-Runtime Quick Execution Bar in Editor Header */}
+                {/* Editor Header Bar */}
                 <div className="flex items-center gap-1.5 ml-2">
-                  {(() => {
-                    const activeName = files[activeFileIndex]?.name || '';
-                    const isPy = activeName.endsWith('.py');
-                    const isNode = activeName.endsWith('.js') || (activeName.endsWith('.ts') && !activeName.endsWith('.d.ts') && !activeName.includes('.tsx'));
-                    const isWeb = activeName.endsWith('.html') || activeName.endsWith('.tsx') || activeName.endsWith('.jsx');
-
-                    if (isPy) {
-                      return (
-                        <button
-                          onClick={() => handleRunPython()}
-                          disabled={isRunningScript}
-                          className="px-2.5 py-1 bg-emerald-950 hover:bg-emerald-900 border border-emerald-600/70 text-emerald-300 hover:text-emerald-100 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-                          title="Execute Python 3.11 script via Pyodide extension"
-                        >
-                          {isRunningScript ? (
-                            <Loader2 className="w-3 h-3 animate-spin text-emerald-300" />
-                          ) : (
-                            <Play className="w-3 h-3 fill-emerald-400 text-emerald-400" />
-                          )}
-                          <span>Run Python</span>
-                        </button>
-                      );
-                    }
-
-                    if (isNode) {
-                      return (
-                        <button
-                          onClick={() => handleRunNode()}
-                          disabled={isRunningScript}
-                          className="px-2.5 py-1 bg-green-950 hover:bg-green-900 border border-green-600/70 text-green-300 hover:text-green-100 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-                          title="Execute Node.js LTS script via sandboxed VFS runner"
-                        >
-                          {isRunningScript ? (
-                            <Loader2 className="w-3 h-3 animate-spin text-green-300" />
-                          ) : (
-                            <Play className="w-3 h-3 fill-green-400 text-green-400" />
-                          )}
-                          <span>Run Node.js</span>
-                        </button>
-                      );
-                    }
-
-                    if (isWeb) {
-                      return (
-                        <button
-                          onClick={() => setShowPreview(true)}
-                          className="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-600/70 text-blue-300 hover:text-blue-100 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-                          title="Run inside Vite Live Preview"
-                        >
-                          <Zap className="w-3 h-3 text-amber-400 fill-amber-400" />
-                          <span>Run in Vite</span>
-                        </button>
-                      );
-                    }
-
-                    return (
-                      <button
-                        onClick={handleRunActiveFile}
-                        className="px-2.5 py-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-300 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer"
-                      >
-                        <Play className="w-3 h-3 fill-current" />
-                        <span>Run File</span>
-                      </button>
-                    );
-                  })()}
-
                   <button
                     onClick={() => {
                       setShowLogs(!showLogs);
@@ -3683,18 +4002,10 @@ export default function App() {
                         ? 'bg-neutral-800 text-white border-neutral-600'
                         : 'bg-[#141414] text-gray-400 hover:text-white border-[#262626] hover:bg-[#222]'
                     }`}
-                    title="Toggle Integrated Multi-Runtime Terminal"
+                    title="Toggle Web Terminal"
                   >
                     <Terminal className="w-3 h-3" />
                     <span className="text-[10px] font-bold">Terminal</span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowExtensionsModal(true)}
-                    className="px-2 py-1 bg-[#141414] hover:bg-[#222] border border-[#262626] hover:border-emerald-500/50 text-gray-400 hover:text-white rounded-lg text-[11px] font-mono transition-all flex items-center gap-1"
-                    title="Gear Extensions (Vite, Python, Node.js)"
-                  >
-                    <Puzzle className="w-3 h-3 text-emerald-400" />
                   </button>
                 </div>
 
@@ -3817,95 +4128,27 @@ export default function App() {
                   </button>
 
                   <button
-                    onClick={() => setTerminalTab('python')}
+                    onClick={() => setTerminalTab('console')}
                     className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1.5 ${
-                      terminalTab === 'python'
-                        ? 'bg-emerald-950/80 text-emerald-300 font-bold border border-emerald-700/80'
-                        : 'text-neutral-400 hover:text-neutral-200'
-                    }`}
-                  >
-                    <Code className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Python 3.11</span>
-                    {pythonOutput.length > 0 && (
-                      <span className="text-[9px] px-1 py-0.2 bg-emerald-900/80 rounded text-emerald-200 font-bold">
-                        {pythonOutput.length}
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => setTerminalTab('node')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1.5 ${
-                      terminalTab === 'node'
-                        ? 'bg-green-950/80 text-green-300 font-bold border border-green-700/80'
-                        : 'text-neutral-400 hover:text-neutral-200'
-                    }`}
-                  >
-                    <Server className="w-3.5 h-3.5 text-green-400" />
-                    <span>Node.js LTS</span>
-                    {nodeOutput.length > 0 && (
-                      <span className="text-[9px] px-1 py-0.2 bg-green-900/80 rounded text-green-200 font-bold">
-                        {nodeOutput.length}
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => setTerminalTab('vite')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1.5 ${
-                      terminalTab === 'vite'
+                      terminalTab === 'console'
                         ? 'bg-amber-950/80 text-amber-300 font-bold border border-amber-700/80'
                         : 'text-neutral-400 hover:text-neutral-200'
                     }`}
                   >
-                    <Zap className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Vite / Web</span>
+                    <Code className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Web Console</span>
                     {logs.length > 0 && (
                       <span className="text-[9px] px-1 py-0.2 bg-amber-900/80 rounded text-amber-200 font-bold">
                         {logs.length}
                       </span>
                     )}
                   </button>
-
-                  <button
-                    onClick={() => setTerminalTab('extensions')}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-all flex items-center gap-1.5 ${
-                      terminalTab === 'extensions'
-                        ? 'bg-neutral-800 text-white font-bold border border-neutral-700'
-                        : 'text-neutral-400 hover:text-neutral-200'
-                    }`}
-                  >
-                    <Puzzle className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Extensions ({extensions.filter(e => e.enabled).length})</span>
-                  </button>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {terminalTab === 'python' && (
-                    <button
-                      onClick={() => handleRunPython()}
-                      disabled={isRunningScript}
-                      className="px-2 py-0.5 bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-emerald-300 text-[10px] font-mono rounded flex items-center gap-1 transition-all"
-                    >
-                      {isRunningScript ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
-                      <span>Re-run Python</span>
-                    </button>
-                  )}
-                  {terminalTab === 'node' && (
-                    <button
-                      onClick={() => handleRunNode()}
-                      disabled={isRunningScript}
-                      className="px-2 py-0.5 bg-green-950 hover:bg-green-900 border border-green-700 text-green-300 text-[10px] font-mono rounded flex items-center gap-1 transition-all"
-                    >
-                      {isRunningScript ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-current" />}
-                      <span>Re-run Node</span>
-                    </button>
-                  )}
                   <button
                     onClick={() => {
-                      if (terminalTab === 'python') setPythonOutput([]);
-                      else if (terminalTab === 'node') setNodeOutput([]);
-                      else if (terminalTab === 'vite') setLogs([]);
+                      if (terminalTab === 'console') setLogs([]);
                       else setTerminalHistory([]);
                     }}
                     className="text-[10px] font-bold text-gray-400 hover:text-white uppercase tracking-wider px-2 py-0.5 rounded hover:bg-neutral-800"
@@ -3925,7 +4168,7 @@ export default function App() {
                     {terminalHistory.map((item, idx) => (
                       <div key={idx} className="space-y-1">
                         <div className="flex items-center gap-2 text-neutral-400">
-                          <span className="text-emerald-400 font-bold">gear@workspace:~$</span>
+                          <span className="text-sky-400 font-bold">web@workspace:~$</span>
                           <span className="text-white">{item.command}</span>
                           <span className="text-[10px] text-neutral-600 ml-auto">{item.time}</span>
                         </div>
@@ -3947,91 +4190,27 @@ export default function App() {
                     }}
                     className="pt-2 border-t border-neutral-800 flex items-center gap-2"
                   >
-                    <span className="text-emerald-400 font-bold select-none">gear@workspace:~$</span>
+                    <span className="text-sky-400 font-bold select-none">web@workspace:~$</span>
                     <input
                       type="text"
                       value={terminalCommand}
                       onChange={(e) => setTerminalCommand(e.target.value)}
-                      placeholder="Type command: python main.py, node server.js, vite, extensions, help..."
+                      placeholder="Type command: preview, ls, cat <file>, touch <file>, rm <file>, models, clear, help..."
                       className="flex-1 bg-transparent text-white font-mono text-xs focus:outline-none placeholder:text-neutral-600"
                     />
                   </form>
                 </div>
               )}
 
-              {/* Tab 2: Python 3.11 Output Stream */}
-              {terminalTab === 'python' && (
-                <div className="flex-1 flex flex-col overflow-hidden bg-[#0A0A0A] font-mono text-xs p-3">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-800 text-[11px] text-neutral-400">
-                    <span className="flex items-center gap-2 text-emerald-300">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                      Python 3.11 Runtime (Pyodide WebAssembly Engine)
-                    </span>
-                    <span>Target: {files.find(f => f.name.endsWith('.py'))?.name || 'main.py'}</span>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
-                    {pythonOutput.length === 0 ? (
-                      <div className="text-neutral-500 italic p-2">
-                        No Python output yet. Click "Run Python" in the editor or type "python main.py" to execute scripts.
-                      </div>
-                    ) : (
-                      pythonOutput.map((line, idx) => (
-                        <div key={idx} className="flex gap-2">
-                          <span className="text-neutral-600 shrink-0 text-[10px] select-none">{line.time}</span>
-                          <pre className={`whitespace-pre-wrap font-mono text-[11px] ${
-                            line.type === 'stderr' ? 'text-red-400' : line.type === 'system' ? 'text-blue-400' : 'text-neutral-200'
-                          }`}>
-                            {line.text}
-                          </pre>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Tab 3: Node.js LTS Output Stream */}
-              {terminalTab === 'node' && (
-                <div className="flex-1 flex flex-col overflow-hidden bg-[#0A0A0A] font-mono text-xs p-3">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-800 text-[11px] text-neutral-400">
-                    <span className="flex items-center gap-2 text-green-300">
-                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                      Node.js 20 LTS Sandboxed VFS Runtime
-                    </span>
-                    <span>Target: {files.find(f => f.name.endsWith('.js') || f.name.endsWith('.ts'))?.name || 'server.js'}</span>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto space-y-1 custom-scrollbar">
-                    {nodeOutput.length === 0 ? (
-                      <div className="text-neutral-500 italic p-2">
-                        No Node.js output yet. Click "Run Node.js" in the editor or type "node server.js" in the terminal.
-                      </div>
-                    ) : (
-                      nodeOutput.map((line, idx) => (
-                        <div key={idx} className="flex gap-2">
-                          <span className="text-neutral-600 shrink-0 text-[10px] select-none">{line.time}</span>
-                          <pre className={`whitespace-pre-wrap font-mono text-[11px] ${
-                            line.type === 'stderr' ? 'text-red-400' : line.type === 'system' ? 'text-blue-400' : 'text-neutral-200'
-                          }`}>
-                            {line.text}
-                          </pre>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Tab 4: Vite Dev Server Logs */}
-              {terminalTab === 'vite' && (
+              {/* Tab 2: Web Console Logs */}
+              {terminalTab === 'console' && (
                 <div className="flex-1 overflow-y-auto p-3 font-mono text-xs space-y-1 custom-scrollbar bg-[#0A0A0A]">
                   <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-800 text-[11px] text-neutral-400">
                     <span className="flex items-center gap-2 text-amber-300">
                       <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                      Vite 5.4.1 Dev Server (HMR & React 18 Transpiler)
+                      Live Web Runtime Console (HTML, CSS, JS)
                     </span>
-                    <span>Target: http://localhost:5173/</span>
+                    <span>Workspace: {currentSpace?.name || 'Standard Web'}</span>
                   </div>
 
                   {logs.length === 0 ? (
@@ -4048,49 +4227,6 @@ export default function App() {
                       </div>
                     ))
                   )}
-                </div>
-              )}
-
-              {/* Tab 5: Extensions Overview */}
-              {terminalTab === 'extensions' && (
-                <div className="flex-1 overflow-y-auto p-4 bg-[#0A0A0A] space-y-3 custom-scrollbar">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-xs font-black uppercase tracking-wider text-white flex items-center gap-2">
-                        <Puzzle className="w-4 h-4 text-emerald-400" />
-                        Installed Gear Extensions
-                      </h4>
-                      <p className="text-[11px] text-neutral-400">
-                        Multi-runtime execution extensions installed inside Gear Studio
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setShowExtensionsModal(true)}
-                      className="px-3 py-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-white rounded-lg text-xs font-mono transition-all flex items-center gap-1.5"
-                    >
-                      <Puzzle className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Manage Extensions</span>
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    {extensions.map(ext => (
-                      <div key={ext.id} className="p-3 bg-neutral-950 border border-neutral-800 rounded-xl space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-white">{ext.name}</span>
-                          <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
-                            ext.enabled ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-neutral-900 text-neutral-500'
-                          }`}>
-                            {ext.enabled ? 'ACTIVE' : 'OFF'}
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-neutral-400 line-clamp-1">{ext.description}</p>
-                        <div className="text-[9px] font-mono text-neutral-500 pt-1">
-                          Engine: {ext.executionEngine}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               )}
             </div>
@@ -4436,44 +4572,28 @@ export default function App() {
                       ? 'border-amber-500/60 bg-amber-950/80 text-amber-300 hover:bg-amber-900/80'
                       : 'border-blue-500/60 bg-blue-950/80 text-blue-300 hover:bg-blue-900/80'
                   }`}
-                  title="Click to toggle AI Project Builder model"
+                  title={`Click to toggle: ${activeModel === 'ionic' ? 'Ionic (Gemini 3 Flash)' : 'Iconic (Gemini 3.1 Flash Lite / 3.5 Flash Lite fallback)'}`}
                 >
                   {activeModel === 'ionic' ? (
                     <>
                       <Zap className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
-                      <span>IONIC • GPT OSS 120B (FULL PROJECT)</span>
+                      <span>IONIC • GEMINI 3 FLASH</span>
                     </>
                   ) : (
                     <>
                       <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                      <span>ICONIC • GROQ COMPOUND (FULL PROJECT)</span>
+                      <span>ICONIC • GEMINI 3.1 FLASH LITE</span>
                     </>
                   )}
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => setShowExtensionsModal(true)}
-                  className="px-2 py-0.5 border border-emerald-500/40 bg-emerald-950/80 hover:bg-emerald-900/80 rounded-full text-[8px] font-black uppercase tracking-wider text-emerald-300 flex items-center gap-1 shadow-sm cursor-pointer transition-all"
-                  title="Manage Gear Extensions (Vite, Python, Node.js)"
-                >
-                  <Puzzle className="w-2.5 h-2.5 text-emerald-400" />
-                  <span>EXTENSIONS ({extensions.filter(e => e.enabled).length})</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage('settings')}
-                  className={`px-2 py-0.5 border rounded-full text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm cursor-pointer transition-all ${
-                    localStorage.getItem('gear_groq_key')
-                      ? 'border-emerald-500/40 bg-emerald-950/60 text-emerald-300 hover:bg-emerald-900/80'
-                      : 'border-amber-500/50 bg-amber-950/80 text-amber-300 hover:bg-amber-900/80 animate-pulse'
-                  }`}
-                  title="Groq API Key Access Status. Click to configure in Settings."
+                <div
+                  className="px-2 py-0.5 border rounded-full text-[8px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm border-emerald-500/40 bg-emerald-950/60 text-emerald-300"
+                  title="Gemini AI Secret Key Connected"
                 >
                   <Key className="w-2.5 h-2.5" />
-                  <span>{localStorage.getItem('gear_groq_key') ? 'GROQ KEY ACTIVE' : '+ GROQ KEY'}</span>
-                </button>
+                  <span>GEMINI ENGINE ACTIVE</span>
+                </div>
               </div>
             </div>
           </div>
@@ -4795,8 +4915,7 @@ export default function App() {
               <button 
                 onClick={async () => {
                   setIsLeftMenuOpen(false);
-                  await supabase.auth.signOut();
-                  setCurrentPage('landing');
+                  await handleLogout();
                 }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold text-red-400 hover:bg-red-500/10 transition-colors"
               >
@@ -5260,15 +5379,6 @@ export default function App() {
         spaceName={currentSpace?.name || 'Untitled Space'}
         files={files}
         onRepoLinked={(info) => setLinkedRepoInfo(info)}
-      />
-
-      {/* Gear Multi-Runtime Extensions Modal */}
-      <ExtensionsModal
-        isOpen={showExtensionsModal}
-        onClose={() => setShowExtensionsModal(false)}
-        extensions={extensions}
-        onToggleExtension={handleToggleExtension}
-        onRunDiagnostic={handleRunDiagnostic}
       />
     </>
   );

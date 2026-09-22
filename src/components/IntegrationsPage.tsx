@@ -38,9 +38,6 @@ export default function IntegrationsPage({
   onOpenGitHubModal,
 }: IntegrationsPageProps) {
   const [formValues, setFormValues] = useState<Record<string, Record<string, string>>>({
-    gemini: {
-      'Gemini API Key': localStorage.getItem('gear_gemini_key') || import.meta.env.VITE_GEAR_API || ''
-    },
     render: {
       'Render API Key': localStorage.getItem('gear_render_key') || '',
       'Service ID': localStorage.getItem('gear_render_service_id') || ''
@@ -52,9 +49,7 @@ export default function IntegrationsPage({
     const connected = new Set(connectedIntegrations);
     connected.add('lucide');
     connected.add('tailwind');
-    if (localStorage.getItem('gear_gemini_key') || import.meta.env.VITE_GEAR_API) {
-      connected.add('gemini');
-    }
+    connected.add('gemini');
     if (localStorage.getItem('gear_render_key')) {
       connected.add('render');
     }
@@ -68,12 +63,9 @@ export default function IntegrationsPage({
     builtin: [
       { 
         id: 'gemini', 
-        name: 'Gemini AI', 
-        desc: 'Power your app and AI assistant with Google Gemini AI models.', 
-        icon: <Zap className="w-5 h-5 text-white" />, 
-        fields: [
-          { label: 'Gemini API Key', key: 'Gemini API Key', placeholder: 'Enter AIzaSy... API key' }
-        ] 
+        name: 'Intelligence Engines', 
+        desc: 'Pre-configured system models powering Ionic and Iconic models directly from server environment.', 
+        icon: <Zap className="w-5 h-5 text-white" />
       },
       { 
         id: 'render', 
@@ -114,13 +106,7 @@ export default function IntegrationsPage({
 
   const handleSaveIntegration = (id: string) => {
     const values = formValues[id] || {};
-    if (id === 'gemini') {
-      const geminiKey = values['Gemini API Key']?.trim();
-      if (geminiKey) {
-        localStorage.setItem('gear_gemini_key', geminiKey);
-        localStorage.setItem('gear_api_key', geminiKey);
-      }
-    } else if (id === 'render') {
+    if (id === 'render') {
       const renderKey = values['Render API Key']?.trim();
       if (renderKey) {
         localStorage.setItem('gear_render_key', renderKey);
@@ -140,7 +126,6 @@ export default function IntegrationsPage({
   const toggleIntegration = (id: string) => {
     if (connectedIntegrations.includes(id)) {
       setConnectedIntegrations(prev => prev.filter(i => i !== id));
-      if (id === 'gemini') localStorage.removeItem('gear_gemini_key');
       if (id === 'render') localStorage.removeItem('gear_render_key');
     } else {
       setConnectedIntegrations(prev => [...prev, id]);

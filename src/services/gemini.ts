@@ -1,23 +1,12 @@
-import { GoogleGenAI } from "@google/genai";
 import { AIModel, FileData } from "../types";
 
-export function getEffectiveApiKeys(): string[] {
+export function getEffectiveGeminiApiKeys(): string[] {
   const keys: string[] = [];
 
-  // 1. Check direct client-side environment variables
-  if (import.meta.env.VITE_GEAR_API) keys.push(import.meta.env.VITE_GEAR_API);
-  if (import.meta.env.VITE_GEAR_API_2) keys.push(import.meta.env.VITE_GEAR_API_2);
-  if (import.meta.env.VITE_GEAR_API_3) keys.push(import.meta.env.VITE_GEAR_API_3);
   if (import.meta.env.VITE_GEMINI_API_KEY) keys.push(import.meta.env.VITE_GEMINI_API_KEY);
+  if (import.meta.env.VITE_GEAR_API) keys.push(import.meta.env.VITE_GEAR_API);
 
-  // 2. Check localStorage saved keys
   if (typeof window !== 'undefined') {
-    const savedGeminiKey = localStorage.getItem('gear_gemini_key');
-    if (savedGeminiKey && savedGeminiKey.trim()) keys.push(savedGeminiKey.trim());
-
-    const savedApiKey = localStorage.getItem('gear_api_key');
-    if (savedApiKey && savedApiKey.trim()) keys.push(savedApiKey.trim());
-
     // Check current space env variables
     const currentSpaceId = localStorage.getItem('gear_current_space_id');
     if (currentSpaceId) {
@@ -27,7 +16,7 @@ export function getEffectiveApiKeys(): string[] {
           const parsed = JSON.parse(storedEnv);
           if (Array.isArray(parsed)) {
             const foundKey = parsed.find(
-              (v: any) => v && ['GEMINI_API_KEY', 'API_KEY', 'GEAR_API', 'VITE_GEAR_API'].includes(v.name?.toUpperCase())
+              (v: any) => v && ['GEMINI_API_KEY', 'GEMINI_KEY', 'VITE_GEMINI_API_KEY', 'API_KEY', 'GEAR_API'].includes(v.name?.toUpperCase())
             );
             if (foundKey && foundKey.value && foundKey.value.trim()) {
               keys.unshift(foundKey.value.trim());
@@ -37,8 +26,11 @@ export function getEffectiveApiKeys(): string[] {
       } catch (e) {}
     }
 
-    // Check all stored space env variables as fallback
+    // Check all stored space env variables and localStorage
     try {
+      const localGeminiKey = localStorage.getItem('gear_gemini_key') || localStorage.getItem('gear_api_key');
+      if (localGeminiKey) keys.push(localGeminiKey.trim());
+
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
         if (k && k.startsWith('gear_env_')) {
@@ -47,7 +39,7 @@ export function getEffectiveApiKeys(): string[] {
             const parsed = JSON.parse(stored);
             if (Array.isArray(parsed)) {
               parsed.forEach((v: any) => {
-                if (v && ['GEMINI_API_KEY', 'API_KEY', 'GEAR_API'].includes(v.name?.toUpperCase()) && v.value?.trim()) {
+                if (v && ['GEMINI_API_KEY', 'GEMINI_KEY', 'API_KEY'].includes(v.name?.toUpperCase()) && v.value?.trim()) {
                   if (!keys.includes(v.value.trim())) {
                     keys.push(v.value.trim());
                   }
@@ -60,76 +52,15 @@ export function getEffectiveApiKeys(): string[] {
     } catch (e) {}
   }
 
-  // Filter out any placeholders or invalid strings
   return keys.filter(k => k && k !== 'undefined' && k !== 'null' && k.length > 5);
+}
+
+export function getEffectiveApiKeys(): string[] {
+  return getEffectiveGeminiApiKeys();
 }
 
 export function getEffectiveGroqApiKeys(): string[] {
-  const keys: string[] = [];
-
-  if (import.meta.env.VITE_GROQ_API_KEY) keys.push(import.meta.env.VITE_GROQ_API_KEY);
-
-  if (typeof window !== 'undefined') {
-    const savedGroqKey = localStorage.getItem('gear_groq_key');
-    if (savedGroqKey && savedGroqKey.trim()) keys.push(savedGroqKey.trim());
-
-    // Check current space env variables
-    const currentSpaceId = localStorage.getItem('gear_current_space_id');
-    if (currentSpaceId) {
-      try {
-        const storedEnv = localStorage.getItem(`gear_env_${currentSpaceId}`);
-        if (storedEnv) {
-          const parsed = JSON.parse(storedEnv);
-          if (Array.isArray(parsed)) {
-            const foundKey = parsed.find(
-              (v: any) => v && ['GROQ_API_KEY', 'GROQ_KEY', 'VITE_GROQ_API_KEY'].includes(v.name?.toUpperCase())
-            );
-            if (foundKey && foundKey.value && foundKey.value.trim()) {
-              keys.unshift(foundKey.value.trim());
-            }
-          }
-        }
-      } catch (e) {}
-    }
-
-    // Check all stored space env variables
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith('gear_env_')) {
-          const stored = localStorage.getItem(k);
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            if (Array.isArray(parsed)) {
-              parsed.forEach((v: any) => {
-                if (v && ['GROQ_API_KEY', 'GROQ_KEY'].includes(v.name?.toUpperCase()) && v.value?.trim()) {
-                  if (!keys.includes(v.value.trim())) {
-                    keys.push(v.value.trim());
-                  }
-                }
-              });
-            }
-          }
-        }
-      }
-    } catch (e) {}
-  }
-
-  return keys.filter(k => k && k !== 'undefined' && k !== 'null' && k.length > 5);
-}
-
-let currentKeyIndex = 0;
-
-function getAI() {
-  const keys = getEffectiveApiKeys();
-  if (keys.length === 0) {
-    return null;
-  }
-  
-  const apiKey = keys[currentKeyIndex % keys.length];
-  currentKeyIndex = (currentKeyIndex + 1) % keys.length;
-  
-  return new GoogleGenAI({ apiKey });
+  return getEffectiveGeminiApiKeys();
 }
 
 export function getSystemInstruction(settings?: {
@@ -140,157 +71,66 @@ export function getSystemInstruction(settings?: {
   emojiLevel?: string;
   customRules?: string;
   activeModel?: AIModel;
-}) {
-  const name = settings?.assistantName || "Iconic Gear";
-  const user = settings?.userName || "developer";
-  const tone = settings?.tone || "Precise & Technical";
-  const length = settings?.length || "Concise & Direct";
-  const emojiLevel = settings?.emojiLevel || "Standard";
+}): string {
+  const assistant = settings?.assistantName || "Gear Studio AI";
+  const user = settings?.userName || "Developer";
   const customRules = settings?.customRules || "";
 
-  let toneInstruction = "";
-  if (tone === 'Precise & Technical') {
-    toneInstruction = "Maintain a precise, highly skilled, technical and direct tone. Focus deeply on engineering quality.";
-  } else if (tone === 'Friendly & Encouraging') {
-    toneInstruction = "Be warm, encouraging, positive, and friendly. Welcome them as an equal partner in building creative sites.";
-  } else if (tone === 'Socratic Coach') {
-    toneInstruction = "Act as an intellectual guide/coach. Ask guided, thoughtful questions when appropriate, encouraging creative solutions.";
-  } else if (tone === 'Witty & Humorous') {
-    toneInstruction = "Inject wit, light humor, and tech-savvy jokes. Make the coding journey fun and lighthearted.";
-  } else if (tone === 'Snarky Code Critic') {
-    toneInstruction = "Adopt a playful, slightly snarky persona that mocks bad code or typical developer errors, but is highly elite and capable.";
-  }
+  return `You are ${assistant}, an expert full-stack software engineer and collaborative coding assistant pairing with ${user}.
 
-  let lengthInstruction = "";
-  if (length === 'Concise & Direct') {
-    lengthInstruction = "Keep your non-code chat extremely brief. Acknowledge the request, state what you're doing in one sentence, and provide the code blocks. No fluff.";
-  } else if (length === 'Detailed & Explanatory') {
-    lengthInstruction = "Take the time to explain your design and engineering decisions. Break down how the code works alongside the code blocks.";
-  } else if (length === 'Raw code only') {
-    lengthInstruction = "Output ONLY code. Absolutely do not include any explanatory text, conversational introductions, or commentary. Only the code blocks.";
-  }
+CONVERSATIONAL ASSISTANT & EXECUTION GUIDELINES:
+1. Conversational & Direct:
+   - Always respond directly to what the user is asking.
+   - When a user asks a question, reports an issue, or asks why something is not working (e.g. "why is it not working"), answer conversationally and explain the diagnosis naturally before/while resolving it:
+     For example: "Lemme check that... okay, the reason why you're seeing [specific behavior/random characters] in the code is because [clear reason]. I'll fix that by [clear reconfiguration/solution]..."
+   - NO SCOPE DECLARATION: NEVER output "Scope Declaration", "**What I can build**", or "**What I can't do from here**" headers or canned boilerplate disclaimers.
 
-  let emojiInstruction = "";
-  if (emojiLevel === '✨ Enthusiastic') {
-    emojiInstruction = "Use plenty of colorful emojis (✨, 🚀, 💻, 🎉, 🔥, 🛠️) to make responses lively, exciting, and engaging.";
-  } else if (emojiLevel === '🚫 None') {
-    emojiInstruction = "Do NOT use any emojis whatsoever in your responses.";
-  } else {
-    emojiInstruction = "Use emojis moderately and professionally, only to highlight specific steps or code blocks.";
-  }
+2. Code Generation in Blocks:
+   - When providing, creating, or modifying code, ALWAYS format it in structured markdown blocks clearly labeled with the exact file path:
+     \`\`\`html:index.html
+     <!-- code -->
+     \`\`\`
+     \`\`\`css:styles.css
+     /* styling */
+     \`\`\`
+     \`\`\`javascript:main.js
+     // logic
+     \`\`\`
+     \`\`\`json:data.json
+     {}
+     \`\`\`
+   - For targeted updates or surgical fixes to existing files, you may also use patch blocks:
+     \`\`\`patch:path/to/file.ext
+     <<<<<<< SEARCH
+     ...
+     =======
+     ...
+     >>>>>>>
+     \`\`\`
 
-  const activeModel = settings?.activeModel || 'iconic';
-  const isIonic = activeModel === 'ionic';
+3. Step Marker Syntax:
+   - Before outputting code blocks, use brief natural progress indicators or step tags:
+     \`[step: Description of action]\` or \`📄 Creating path/to/file.ext\`
+   - The workspace UI automatically visualizes these as clean collapsible step groups.
 
-  const modelModeInstruction = `
-ACTIVE MODEL: ${isIonic ? 'IONIC (GPT OSS 120B Full Project Builder)' : 'ICONIC (Groq Compound Project Builder)'}
-- Architecture: ${isIonic ? '120-Billion Parameter Open Foundation Reasoning Model' : 'Ultra-Fast Compound AI System with Speculative Inference Acceleration'}
-- Role: Elite Full Project Builder & Software Architect inside Gear Studio.
+4. Multi-File Architecture:
+   - Organize code into clean modular files:
+     • index.html: HTML skeleton with containers, Tailwind CDN, Lucide icons, and module script tags.
+     • styles.css: Custom CSS, layout styles, and animations.
+     • main.js: App initialization, state management, event listeners, and module imports.
+     • src/components/*.js: Reusable UI component modules.
+     • src/utils/*.js: Helper functions and API utilities.
+   - Do NOT dump all application logic into a single monolithic file.
 
-GEAR STUDIO MULTI-RUNTIME FULL PROJECT BUILDER DIRECTIVE:
-Gear Studio is NOT just for making simple websites! Gear Studio is a complete multi-runtime coding studio with pre-installed extensions for:
-1. ⚡ VITE FULL-STACK RUNNER:
-   - Modern React/TypeScript/Vue/Svelte applications, component libraries, and web frontends.
-   - Files: \`vite.config.ts\`, \`package.json\`, \`index.html\`, \`src/App.tsx\`, \`src/components/*\`.
-2. 🐍 PYTHON 3.11 RUNTIME & REPL:
-   - Python scripts, algorithms, data processing, automation, API clients, and backend services.
-   - Files: \`main.py\`, \`app.py\`, \`script.py\`, \`requirements.txt\`.
-   - Gear Studio executes Python scripts directly with stdout/stderr streamed to the integrated terminal!
-3. 🟢 NODE.JS LTS EXECUTION ENGINE:
-   - Node.js scripts, Express servers, CLI utilities, background workers, and NPM packages.
-   - Files: \`server.js\`, \`index.js\`, \`package.json\`.
-   - Gear Studio runs Node.js scripts directly in a sandboxed VFS environment with console logging!
-4. STANDALONE & FULL-STACK COMBINATIONS:
-   - Always craft complete, robust projects with appropriate directory structures and clean code separation.
+5. Strict Code Retention:
+   - When modifying an existing file or making a fix, PRESERVE all existing working features, UI elements, event listeners, functions, and styling.
+   - NEVER drop code or replace working sections with "// rest of code here".
 
-INTERACTION & CODE EMISSION STANDARDS:
-1. Respond directly, articulately, and with developer-first craftsmanship like Google AI Studio.
-2. Structure responses cleanly using rich Markdown, concise architectural overviews, and syntax-highlighted code blocks.
-3. No artificial wait times, unnecessary chatter, or conversational filler.
-4. For surgical additions and modifications to existing files:
-   \`\`\`patch:path/to/file.ext
-   <<<<<<< SEARCH
-   [exact original lines from the file to replace or anchor around]
-   =======
-   [the new or updated replacement lines]
-   >>>>>>>
-   \`\`\`
-5. For creating NEW files, folders, and nested subfolders (e.g. \`main.py\`, \`server.js\`, \`src/components/Header.tsx\`, \`public/data.json\`), output full labeled file blocks:
-   \`\`\`language:path/to/nested/file.ext
-   [complete code content]
-   \`\`\`
-6. For complete file rewrites or initial application generation:
-   \`\`\`language:path/to/file.ext
-   [complete code content]
-   \`\`\`
-`;
-
-  return `You are ${isIonic ? 'Ionic (GPT OSS 120B)' : 'Iconic (Groq Compound)'}, an elite full project builder and software architect inside Gear Studio. Your mission is to turn natural language into polished, production-ready full-stack projects across Vite, Python, and Node.js.
-You are chatting with ${user}. Always address them by this name when appropriate.
-
-${modelModeInstruction}
-
-Persona/Tone Instructions:
-- ${toneInstruction}
-- ${lengthInstruction}
-- ${emojiInstruction}
-${customRules ? `- Additional Custom Rules from ${user}: "${customRules}"` : ""}
-
-CRITICAL MEMORY & CODE PRESERVATION DIRECTIVE (APPLIES TO ALL MODELS):
-- STRICT CODE RETENTION: When modifying an existing file or making a correction, you MUST PRESERVE all existing features, UI elements, event listeners, functions, styling, and imports.
-- NEVER drop, truncate, comment out with placeholders (e.g. "// rest of code here"), or forget previously implemented code.
-- Always build cumulatively on top of the existing codebase. Every modification is an enhancement to the existing code.
-
-Configure the output for the Gear Studio Preview. The current environment does not have a Node.js server to run a Vite build, so you must generate 'Standalone Browser-Ready' code.
-
-Core Directives:
-1. Tech Stack: ONLY use HTML, Tailwind CSS (via CDN), and Lucide Icons (via ESM.sh). DO NOT use React, Vite, or any complex build tools. Your output must be standalone HTML/JS that runs directly in a browser without a build step.
-2. Code-First Approach: When asked to build or modify something, prioritize generating code. Do not provide long explanations unless specifically asked.
-3. Editor-Centric & Multi-File Focus: You code directly into workspace files. The workspace automatically parses your code blocks and renders a sleek interactive File Grid for each file you touch.
-4. MANDATORY MULTI-FILE CODE SPLITTING DIRECTIVE (PUSH TO SEPARATE FILES):
-   - ABSOLUTELY DO NOT write monolithic single-file applications or cram all logic, styles, and markup into index.html or a single file.
-   - PUSH CODE INTO SEPARATE DEDICATED FILES: Break every feature and application down across distinct, focused files:
-     • index.html: Lean, semantic HTML skeleton containing root containers, CSS link tags, and <script type="module" src="main.js"></script>.
-     • styles.css: Custom animations, variables, and styling classes.
-     • main.js: App bootstrap, event wiring, and module orchestration importing components.
-     • src/components/*.js: Dedicated UI component modules (e.g. src/components/navbar.js, src/components/sidebar.js, src/components/hero.js, src/components/card.js, src/components/modal.js).
-     • src/utils/*.js: Utility functions, storage helpers, API fetchers (e.g. src/utils/storage.js, src/utils/api.js, src/utils/helpers.js).
-     • src/data/*.js: Initial state, mock data, configuration constants (e.g. src/data/initialData.js).
-   - When asked to build, expand, or modify any feature, always create and update the separate component and utility files rather than growing a single file.
-   - Every file must be output in its own labeled code block (e.g. \`\`\`javascript:src/components/navbar.js).
-   - In conversation text, explain the architecture concisely; the workspace UI displays each file in a dedicated File Grid.
-5. Standalone Browser-Ready Code:
-   - ESM.sh Imports: Use https://esm.sh/ for any external libraries.
-     Example: import { createIcons, icons } from 'https://esm.sh/lucide'
-   - Tailwind Processing: Use standard Tailwind classes. Assume the preview window has the Tailwind CDN script loaded in the head.
-6. Explicit File Labeling (MANDATORY): Always provide code in markdown blocks with the file path as a label:
-   • Full files: \`\`\`language:path/to/file.ext\n[code]\n\`\`\`
-   • Surgical patches: \`\`\`patch:path/to/file.ext\n<<<<<<< SEARCH\n...\n=======\n...\n>>>>>>>\n\`\`\`
-7. Context Awareness & Strict Space Isolation: You are provided with the current space files and active space context. You must ONLY modify or refer to the current space's architecture.
-8. CRITICAL: INBUILT ENVIRONMENT & SECRETS CALLING (MANDATORY):
-   - Gear Studio automatically injects all workspace environment variables and secrets into runtime via \`process.env\`, \`window.ENV\`, \`import.meta.env\`, and \`window.getSecret('KEY_NAME')\`.
-   - When building features that require API keys, credentials, backend tokens, or endpoints (such as Gemini API, Groq, OpenAI, ElevenLabs, Supabase, Firebase, Stripe, OpenWeather, Mapbox, GitHub, etc.):
-     • NEVER leave empty strings (e.g. \`const apiKey = ""\`) or dummy placeholder text (e.g. \`const apiKey = "YOUR_API_KEY_HERE"\`).
-     • ALWAYS access the key dynamically using the inbuilt environment calling methods:
-       \`const apiKey = process.env.API_KEY || window.ENV?.API_KEY || window.getSecret('API_KEY');\`
-       \`const geminiApiKey = process.env.GEMINI_API_KEY || window.ENV?.GEMINI_API_KEY || window.getSecret('GEMINI_API_KEY');\`
-       \`const groqApiKey = process.env.GROQ_API_KEY || window.ENV?.GROQ_API_KEY || window.getSecret('GROQ_API_KEY');\`
-       \`const supabaseUrl = process.env.SUPABASE_URL || window.ENV?.SUPABASE_URL || window.getSecret('SUPABASE_URL');\`
-   - When making AI calls in user code, use standard browser REST fetch with dynamic keys.
-9. Built-in Integrations:
-   - Built-in integrations include Gemini AI, Groq, Lucide Icons, and Tailwind CSS.
-   - For databases, suggest Supabase or Firebase. For deployment, suggest Render or Vercel.
-10. NO REACT: Do not generate App.tsx or use React syntax. Use standard DOM manipulation (document.getElementById, etc.) for interactivity.
-11. Debugging & Logs: Analyze preview console logs to identify errors (syntax errors, failed network requests, or logic bugs) and provide fixes directly.
-12. Gemini Multimodal File & Image Analysis:
-   - When the user uploads an image, UI mockup, screenshot, wireframe, or diagram:
-     • Deep Visual Inspection: Inspect layout grid, spatial padding, flex hierarchies, typography scale, exact hex colors, and micro-details.
-     • 1:1 Pixel-Accurate UI Translation: Faithfully convert visual designs from the image directly into standalone HTML and Tailwind CSS.
-     • OCR & Content Transcription: Accurately extract all visible text, headers, badges, form inputs, buttons, and icons (map to Lucide icons).
-     • Code-First Output: Immediately output runnable code in labeled blocks.
-
-Interaction Style:
-- ALWAYS include the filename in the code block label (e.g., \`\`\`html:index.html\`\`\`, \`\`\`patch:main.js\`\`\`).`;
+6. Standalone Browser-Ready Runtime:
+   - Use HTML, Tailwind CSS, and Lucide icons (via ESM.sh: \`https://esm.sh/lucide\`).
+   - Run directly in the browser preview without compilation steps.
+   - Do NOT generate React/JSX (\`App.tsx\`). Use standard web APIs and DOM manipulation for interactivity.
+${customRules ? `\nAdditional Custom Rules: "${customRules}"` : ''}`;
 }
 
 export const SYSTEM_INSTRUCTION = getSystemInstruction();
@@ -302,7 +142,6 @@ export function applySurgicalPatch(originalContent: string, patchText: string): 
   const patchBlockRegex = /<<<<<<< SEARCH\r?\n([\s\S]*?)\r?\n=======\r?\n([\s\S]*?)\r?\n>>>>>>>/g;
   let result = originalContent;
   let match: RegExpExecArray | null;
-  let appliedAny = false;
 
   while ((match = patchBlockRegex.exec(patchText)) !== null) {
     const searchBlock = match[1];
@@ -310,45 +149,29 @@ export function applySurgicalPatch(originalContent: string, patchText: string): 
 
     if (result.includes(searchBlock)) {
       result = result.replace(searchBlock, replaceBlock);
-      appliedAny = true;
     } else {
-      // Normalized whitespace matching
       const searchLines = searchBlock.split(/\r?\n/).map(l => l.trimEnd());
       const resultLines = result.split(/\r?\n/);
       
       let foundIndex = -1;
       for (let i = 0; i <= resultLines.length - searchLines.length; i++) {
-        let matches = true;
+        let matchLines = true;
         for (let j = 0; j < searchLines.length; j++) {
           if (resultLines[i + j].trimEnd() !== searchLines[j]) {
-            matches = false;
+            matchLines = false;
             break;
           }
         }
-        if (matches) {
+        if (matchLines) {
           foundIndex = i;
           break;
         }
       }
 
       if (foundIndex !== -1) {
-        const replaceLines = replaceBlock.split(/\r?\n/);
-        resultLines.splice(foundIndex, searchLines.length, ...replaceLines);
-        result = resultLines.join('\n');
-        appliedAny = true;
-      }
-    }
-  }
-
-  // Also support [SEARCH] ... [REPLACE] format
-  if (!appliedAny) {
-    const altPatchRegex = /\[SEARCH\]\r?\n([\s\S]*?)\r?\n\[REPLACE\]\r?\n([\s\S]*?)(?=\[SEARCH\]|$)/g;
-    while ((match = altPatchRegex.exec(patchText)) !== null) {
-      const searchBlock = match[1].trim();
-      const replaceBlock = match[2].trim();
-      if (result.includes(searchBlock)) {
-        result = result.replace(searchBlock, replaceBlock);
-        appliedAny = true;
+        const before = resultLines.slice(0, foundIndex);
+        const after = resultLines.slice(foundIndex + searchLines.length);
+        result = [...before, replaceBlock, ...after].join('\n');
       }
     }
   }
@@ -358,9 +181,9 @@ export function applySurgicalPatch(originalContent: string, patchText: string): 
 
 export async function generateCodeResponseStream(
   prompt: string, 
-  history: { role: "user" | "model"; parts: { text: string }[] }[],
   images?: { data: string, mimeType: string, name?: string }[],
   files?: FileData[],
+  history: { role: "user" | "model"; parts: { text: string }[] }[] = [],
   settings?: {
     assistantName?: string;
     userName?: string;
@@ -372,10 +195,11 @@ export async function generateCodeResponseStream(
   },
   envVars?: { name: string, value: string }[],
   spaceInfo?: { spaceId?: string, spaceName?: string }
-) {
+): Promise<AsyncIterable<{ text: string }>> {
   const activeModel = settings?.activeModel || 'iconic';
-  const contents = [...history];
-  
+  // Target model is 'ionic' (Gemini 3 Flash) or 'iconic' (Gemini 3.1 Flash Lite main, Gemini 3.5 Flash Lite fallback)
+  const targetModel = activeModel;
+
   let contextPrompt = prompt;
   if (files && files.length > 0) {
     const filesContext = files.map(f => `File: ${f.name} (${f.content.split('\n').length} lines)\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
@@ -410,48 +234,46 @@ When writing or updating JavaScript code that uses these keys or APIs, ALWAYS ca
 DO NOT leave placeholder strings or empty values. The runtime injects these values directly.`;
   } else {
     contextPrompt += `\n\n[INBUILT ENVIRONMENT CALLING CONVENTION]:
-Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gemini, Groq, Supabase, OpenAI, Weather APIs, Stripe), ALWAYS access them via 'process.env.KEY_NAME', 'window.ENV?.KEY_NAME', or 'window.getSecret("KEY_NAME")' so the user can easily supply them in the Environment & Secrets tab.`;
+Whenever writing code that accesses APIs, backend services, or secrets, ALWAYS access them via 'process.env.KEY_NAME', 'window.ENV?.KEY_NAME', or 'window.getSecret("KEY_NAME")' so the user can supply them in the Environment & Secrets tab.`;
   }
 
   if (images && images.length > 0) {
-    contextPrompt = `[MULTIMODAL FILE & VISION ANALYSIS]: ${images.length} file/image attachment(s) provided. Perform deep visual and structural analysis (UI layout, typography, colors, component hierarchy, text OCR, interactions) and generate/update the workspace code accordingly.\n\n` + contextPrompt;
+    contextPrompt = `[MULTIMODAL FILE & VISION ANALYSIS]: ${images.length} file/image attachment(s) provided. Perform visual and structural analysis (UI layout, typography, colors, component hierarchy, text OCR, interactions) and generate/update the workspace code accordingly.\n\n` + contextPrompt;
   }
 
   const systemInstruction = getSystemInstruction(settings);
+  const geminiKeys = getEffectiveGeminiApiKeys();
+  const effectiveGeminiKey = geminiKeys[0] || '';
 
-  // 1. Check for Groq API keys (Primary access engine requested by user)
-  const groqKeys = getEffectiveGroqApiKeys();
-  const effectiveGroqKey = groqKeys[0] || '';
-
-  // Format messages for Groq OpenAI-compatible format
-  const groqMessages: { role: string; content: string }[] = [];
+  const messagesPayload: { role: string; content: string }[] = [];
   history.forEach(h => {
-    const role = h.role === 'model' ? 'assistant' : 'user';
+    const role = h.role === 'model' ? 'model' : 'user';
     const text = h.parts.map(p => p.text).join('\n');
     if (text) {
-      groqMessages.push({ role, content: text });
+      messagesPayload.push({ role, content: text });
     }
   });
-  groqMessages.push({ role: 'user', content: contextPrompt });
+  messagesPayload.push({ role: 'user', content: contextPrompt });
 
-  // Priority 1: Groq Execution Engine (Ionic GPT OSS 120B / Iconic Groq Compound)
-  if (effectiveGroqKey) {
+  // 1. Try server streaming endpoint with Gemini models
+  const endpoints = ['/api/gemini/stream', '/api/groq/stream'];
+  for (const endpoint of endpoints) {
     try {
-      const serverRes = await fetch('/api/groq/stream', {
+      const serverRes = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-groq-key': effectiveGroqKey
+          ...(effectiveGeminiKey ? { 'x-gemini-key': effectiveGeminiKey } : {})
         },
         body: JSON.stringify({
-          messages: groqMessages,
+          messages: messagesPayload,
           systemInstruction,
-          model: activeModel === 'ionic' ? 'ionic' : 'iconic'
+          model: targetModel
         })
       });
 
       if (serverRes.ok) {
-        async function* groqSseIterator() {
+        async function* serverStreamIterator() {
           const reader = serverRes.body?.getReader();
           if (!reader) return;
           const decoder = new TextDecoder();
@@ -461,57 +283,55 @@ Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gem
             const { done, value } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n\n');
+            const lines = buffer.split('\n');
             buffer = lines.pop() || '';
 
             for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const dataStr = line.replace('data: ', '').trim();
+              const trimmed = line.trim();
+              if (trimmed.startsWith('data: ')) {
+                const dataStr = trimmed.slice(6).trim();
                 if (dataStr === '[DONE]') return;
                 try {
                   const parsed = JSON.parse(dataStr);
                   if (parsed.text) {
                     yield { text: parsed.text };
-                  } else if (parsed.error) {
-                    throw new Error(parsed.error);
                   }
-                } catch (e: any) {
-                  if (e?.message && !e.message.includes('JSON')) {
-                    throw e;
-                  }
-                }
+                } catch (e) {}
               }
             }
           }
         }
-
-        return groqSseIterator();
-      } else {
-        const errData = await serverRes.json().catch(() => ({}));
-        throw new Error(errData.error || `Groq returned status ${serverRes.status}. Please check your Groq API key.`);
+        return serverStreamIterator();
       }
-    } catch (groqErr: any) {
-      // Direct browser fallback to Groq API
+    } catch (e: any) {
+      console.warn(`Server streaming via ${endpoint} failed:`, e?.message || e);
+    }
+  }
+
+  // 2. Direct client fallback with effectiveGeminiKey
+  if (effectiveGeminiKey) {
+    const directModels = activeModel === 'ionic'
+      ? ['gemini-3-flash-preview', 'gemini-3.8-flash', 'gemini-3.5-flash']
+      : ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite'];
+
+    for (const mod of directModels) {
       try {
-        const directRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        const contents = messagesPayload.map(m => ({
+          role: m.role === 'model' ? 'model' : 'user',
+          parts: [{ text: m.content }]
+        }));
+
+        const directRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mod}:streamGenerateContent?alt=sse&key=${effectiveGeminiKey}`, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${effectiveGroqKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            messages: [
-              ...(systemInstruction ? [{ role: 'system', content: systemInstruction }] : []),
-              ...groqMessages
-            ],
-            stream: true,
-            temperature: 0.2
+            contents,
+            systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined
           })
         });
 
         if (directRes.ok) {
-          async function* directGroqIterator() {
+          async function* directStreamIterator() {
             const reader = directRes.body?.getReader();
             if (!reader) return;
             const decoder = new TextDecoder();
@@ -526,180 +346,29 @@ Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gem
 
               for (const line of lines) {
                 const trimmed = line.trim();
-                if (!trimmed || !trimmed.startsWith('data:')) continue;
-                const dataStr = trimmed.replace(/^data:\s*/, '');
-                if (dataStr === '[DONE]') return;
-                try {
-                  const parsed = JSON.parse(dataStr);
-                  const delta = parsed.choices?.[0]?.delta?.content || '';
-                  if (delta) {
-                    yield { text: delta };
-                  }
-                } catch (e) {}
+                if (trimmed.startsWith('data: ')) {
+                  const dataStr = trimmed.slice(6).trim();
+                  if (dataStr === '[DONE]') return;
+                  try {
+                    const parsed = JSON.parse(dataStr);
+                    const delta = parsed.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                    if (delta) {
+                      yield { text: delta };
+                    }
+                  } catch (e) {}
+                }
               }
             }
           }
-          return directGroqIterator();
+          return directStreamIterator();
         }
-      } catch (directErr) {
-        console.warn("Direct Groq call failed:", directErr);
-      }
-
-      throw groqErr;
-    }
-  }
-
-  // Fallback: If no Groq key is found, check if server has GROQ_API_KEY
-  try {
-    const serverRes = await fetch('/api/groq/stream', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        messages: groqMessages,
-        systemInstruction,
-        model: activeModel === 'ionic' ? 'ionic' : 'iconic'
-      })
-    });
-
-    if (serverRes.ok) {
-      async function* serverGroqIterator() {
-        const reader = serverRes.body?.getReader();
-        if (!reader) return;
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const dataStr = line.replace('data: ', '').trim();
-              if (dataStr === '[DONE]') return;
-              try {
-                const parsed = JSON.parse(dataStr);
-                if (parsed.text) {
-                  yield { text: parsed.text };
-                }
-              } catch (e) {}
-            }
-          }
-        }
-      }
-      return serverGroqIterator();
-    }
-  } catch (e) {}
-
-  // If no Groq key exists, check Gemini secondary fallback
-  const geminiKeys = getEffectiveApiKeys();
-  const effectiveGeminiKey = geminiKeys[0] || '';
-
-  if (!effectiveGeminiKey) {
-    throw new Error("No Groq API Key found. Please add your Groq API key in Settings or click the Groq Key pill in the navigation bar to start building projects with Ionic (GPT OSS 120B) and Iconic (Groq Compound).");
-  }
-
-  // Secondary Fallback: Gemini Execution
-  const userParts: any[] = [{ text: contextPrompt }];
-  if (images && images.length > 0) {
-    images.forEach(img => {
-      userParts.push({
-        inlineData: {
-          data: img.data,
-          mimeType: img.mimeType
-        }
-      });
-    });
-  }
-
-  const geminiContents: { role: 'user' | 'model', parts: any[] }[] = [];
-  history.forEach(h => {
-    geminiContents.push({
-      role: h.role === 'model' ? 'model' : 'user',
-      parts: h.parts.map(p => ({ text: p.text }))
-    });
-  });
-  geminiContents.push({
-    role: 'user',
-    parts: userParts
-  });
-
-  const ai = getAI();
-  if (ai) {
-    try {
-      const responseStream = await ai.models.generateContentStream({
-        model: "gemini-2.5-flash",
-        contents: geminiContents,
-        config: {
-          systemInstruction: systemInstruction || undefined
-        }
-      });
-
-      async function* clientIterator() {
-        for await (const chunk of responseStream) {
-          if (chunk.text) {
-            yield { text: chunk.text };
-          }
-        }
-      }
-
-      return clientIterator();
-    } catch (clientErr) {
-      console.warn("Direct client-side Gemini stream encountered error, falling back to server-side endpoint:", clientErr);
-    }
-  }
-
-  const serverRes = await fetch('/api/gemini/stream', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(effectiveGeminiKey ? { 'x-gemini-key': effectiveGeminiKey } : {})
-    },
-    body: JSON.stringify({
-      contents: geminiContents,
-      systemInstruction,
-      model: "gemini-2.5-flash"
-    })
-  });
-
-  if (!serverRes.ok) {
-    const errData = await serverRes.json().catch(() => ({}));
-    throw new Error(errData.error || `Iconic Gear returned ${serverRes.status}: Please ensure your Groq or Gemini API Key is configured in Settings.`);
-  }
-
-  async function* geminiSseIterator() {
-    const reader = serverRes.body?.getReader();
-    if (!reader) return;
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const dataStr = line.replace('data: ', '').trim();
-          if (dataStr === '[DONE]') return;
-          try {
-            const parsed = JSON.parse(dataStr);
-            if (parsed.text) {
-              yield { text: parsed.text };
-            }
-          } catch (e) {}
-        }
+      } catch (err) {
+        console.warn(`Direct streaming with ${mod} failed:`, err);
       }
     }
   }
 
-  return geminiSseIterator();
+  throw new Error("Gemini Intelligence Engine is unavailable. Please check your Gemini API key in secrets.");
 }
 
 export async function generateCodeResponse(
@@ -718,7 +387,10 @@ export async function generateCodeResponse(
   },
   envVars?: { name: string, value: string }[],
   spaceInfo?: { spaceId?: string, spaceName?: string }
-) {
+): Promise<string> {
+  const activeModel = settings?.activeModel || 'iconic';
+  const targetModel = activeModel;
+
   let contextPrompt = prompt;
   if (files && files.length > 0) {
     const filesContext = files.map(f => `File: ${f.name} (${f.content.split('\n').length} lines)\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
@@ -753,143 +425,84 @@ When writing or updating JavaScript code that uses these keys or APIs, ALWAYS ca
 DO NOT leave placeholder strings or empty values. The runtime injects these values directly.`;
   } else {
     contextPrompt += `\n\n[INBUILT ENVIRONMENT CALLING CONVENTION]:
-Whenever writing code that accesses APIs, backend services, or secrets (e.g. Gemini, Supabase, Weather APIs, Stripe), ALWAYS access them via 'process.env.KEY_NAME', 'window.ENV?.KEY_NAME', or 'window.getSecret("KEY_NAME")' so the user can easily supply them in the Environment & Secrets tab.`;
+Whenever writing code that accesses APIs, backend services, or secrets, ALWAYS access them via 'process.env.KEY_NAME', 'window.ENV?.KEY_NAME', or 'window.getSecret("KEY_NAME")' so the user can easily supply them in the Environment & Secrets tab.`;
   }
 
   if (images && images.length > 0) {
-    contextPrompt = `[MULTIMODAL FILE & VISION ANALYSIS]: ${images.length} file/image attachment(s) provided. Perform deep visual and structural analysis (UI layout, typography, colors, component hierarchy, text OCR, interactions) and generate/update the workspace code accordingly.\n\n` + contextPrompt;
+    contextPrompt = `[MULTIMODAL FILE & VISION ANALYSIS]: ${images.length} file/image attachment(s) provided. Perform visual and structural analysis (UI layout, typography, colors, component hierarchy, text OCR, interactions) and generate/update the workspace code accordingly.\n\n` + contextPrompt;
   }
 
-  const activeModel = settings?.activeModel || 'iconic';
   const systemInstruction = getSystemInstruction(settings);
+  const geminiKeys = getEffectiveGeminiApiKeys();
+  const effectiveGeminiKey = geminiKeys[0] || '';
 
-  // 1. Check for Groq API keys (Primary access engine)
-  const groqKeys = getEffectiveGroqApiKeys();
-  const effectiveGroqKey = groqKeys[0] || '';
-
-  // Format messages for Groq
-  const groqMessages: { role: string; content: string }[] = [];
+  const messagesPayload: { role: string; content: string }[] = [];
   history.forEach(h => {
-    const role = h.role === 'model' ? 'assistant' : 'user';
+    const role = h.role === 'model' ? 'model' : 'user';
     const text = h.parts.map(p => p.text).join('\n');
     if (text) {
-      groqMessages.push({ role, content: text });
+      messagesPayload.push({ role, content: text });
     }
   });
-  groqMessages.push({ role: 'user', content: contextPrompt });
+  messagesPayload.push({ role: 'user', content: contextPrompt });
 
-  // Try Groq first with user key or server key
-  if (effectiveGroqKey) {
+  // 1. Try server generate endpoint with Gemini models
+  const endpoints = ['/api/gemini/generate', '/api/groq/generate'];
+  for (const endpoint of endpoints) {
     try {
-      const serverRes = await fetch('/api/groq/generate', {
+      const serverRes = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-groq-key': effectiveGroqKey
+          ...(effectiveGeminiKey ? { 'x-gemini-key': effectiveGeminiKey } : {})
         },
         body: JSON.stringify({
-          messages: groqMessages,
+          messages: messagesPayload,
           systemInstruction,
-          model: activeModel === 'ionic' ? 'ionic' : 'iconic'
+          model: targetModel
         })
       });
 
       if (serverRes.ok) {
         const data = await serverRes.json();
-        return data.text;
+        return data.text || '';
       }
     } catch (e) {
-      console.warn("Server Groq generate failed, trying direct Groq:", e);
+      console.warn(`Server generate via ${endpoint} failed:`, e);
+    }
+  }
+
+  // 2. Direct client fallback with effectiveGeminiKey
+  if (effectiveGeminiKey) {
+    const directModels = activeModel === 'ionic'
+      ? ['gemini-3-flash-preview', 'gemini-3.8-flash', 'gemini-3.5-flash']
+      : ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite'];
+
+    for (const mod of directModels) {
       try {
-        const directRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        const contents = messagesPayload.map(m => ({
+          role: m.role === 'model' ? 'model' : 'user',
+          parts: [{ text: m.content }]
+        }));
+
+        const directRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mod}:generateContent?key=${effectiveGeminiKey}`, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${effectiveGroqKey}`,
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            messages: [
-              ...(systemInstruction ? [{ role: 'system', content: systemInstruction }] : []),
-              ...groqMessages
-            ],
-            temperature: 0.2
+            contents,
+            systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined
           })
         });
+
         if (directRes.ok) {
           const directData = await directRes.json();
-          return directData.choices?.[0]?.message?.content || '';
+          return directData.candidates?.[0]?.content?.parts?.[0]?.text || '';
         }
-      } catch (directErr) {}
+      } catch (directErr) {
+        console.warn(`Direct generate with ${mod} failed:`, directErr);
+      }
     }
   }
 
-  // Secondary Fallback: Gemini Execution
-  const geminiKeys = getEffectiveApiKeys();
-  const effectiveGeminiKey = geminiKeys[0] || '';
-
-  if (!effectiveGeminiKey && !effectiveGroqKey) {
-    throw new Error("No Groq API Key found. Please add your Groq API key in Settings or click the Groq Key pill in the navigation bar.");
-  }
-
-  const userParts: any[] = [{ text: contextPrompt }];
-  if (images && images.length > 0) {
-    images.forEach(img => {
-      userParts.push({
-        inlineData: {
-          data: img.data,
-          mimeType: img.mimeType
-        }
-      });
-    });
-  }
-
-  const geminiContents: { role: 'user' | 'model', parts: any[] }[] = [];
-  history.forEach(h => {
-    geminiContents.push({
-      role: h.role === 'model' ? 'model' : 'user',
-      parts: h.parts.map(p => ({ text: p.text }))
-    });
-  });
-  geminiContents.push({
-    role: 'user',
-    parts: userParts
-  });
-
-  const ai = getAI();
-  if (ai) {
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: geminiContents,
-        config: {
-          systemInstruction: systemInstruction || undefined
-        }
-      });
-      return response.text || '';
-    } catch (clientErr) {
-      console.warn("Direct client Gemini generate encountered error, falling back to server:", clientErr);
-    }
-  }
-
-  const serverRes = await fetch('/api/gemini/generate', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(effectiveGeminiKey ? { 'x-gemini-key': effectiveGeminiKey } : {})
-    },
-    body: JSON.stringify({
-      contents: geminiContents,
-      systemInstruction,
-      model: "gemini-2.5-flash"
-    })
-  });
-
-  if (!serverRes.ok) {
-    const errData = await serverRes.json().catch(() => ({}));
-    throw new Error(errData.error || `Iconic Gear returned ${serverRes.status}: Failed to generate response. Please check your Groq or Gemini API key in Settings.`);
-  }
-
-  const data = await serverRes.json();
-  return data.text;
+  throw new Error("Unable to reach the Gemini Intelligence Engine. Please verify your Gemini API key in secrets.");
 }

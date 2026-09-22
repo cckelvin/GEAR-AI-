@@ -18,7 +18,6 @@ interface EnvironmentVariablesPageProps {
 
 const COMMON_PRESETS = [
   { name: 'GEMINI_API_KEY', placeholder: 'AIzaSy...', type: 'ai' },
-  { name: 'GROQ_API_KEY', placeholder: 'gsk_...', type: 'groq' },
   { name: 'SUPABASE_URL', placeholder: 'https://xyz.supabase.co', type: 'supabase' },
   { name: 'SUPABASE_KEY', placeholder: 'eyJhbGciOi...', type: 'supabase' },
   { name: 'RENDER_API_KEY', placeholder: 'rnd_...', type: 'render' },
