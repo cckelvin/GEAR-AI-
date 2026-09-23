@@ -22,6 +22,7 @@ interface OverviewPageProps {
   spaces: Space[];
   currentSpace: Space;
   setCurrentSpace?: (space: Space) => void;
+  onSelectSpace?: (space: Space) => void;
   loadSpaceFiles?: (spaceId: string) => void;
   loadSpaceMessages?: (spaceId: string) => void;
   setCurrentPage: (page: string) => void;
@@ -36,6 +37,7 @@ export default function OverviewPage({
   spaces,
   currentSpace,
   setCurrentSpace,
+  onSelectSpace,
   loadSpaceFiles,
   loadSpaceMessages,
   setCurrentPage,
@@ -59,7 +61,10 @@ export default function OverviewPage({
   };
 
   const handleSelectSpace = (space: Space) => {
-    if (setCurrentSpace && loadSpaceFiles && loadSpaceMessages) {
+    if (onSelectSpace) {
+      onSelectSpace(space);
+      setCurrentPage('chat');
+    } else if (setCurrentSpace && loadSpaceFiles && loadSpaceMessages) {
       setCurrentSpace(space);
       loadSpaceFiles(space.id);
       loadSpaceMessages(space.id);

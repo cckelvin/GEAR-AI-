@@ -88,6 +88,7 @@ import {
   Server
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import JSZip from 'jszip';
 import Markdown from 'react-markdown';
 import { generateCodeResponse, generateCodeResponseStream, applySurgicalPatch } from './services/gemini';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
@@ -493,9 +494,35 @@ export default function App() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const currentSpaceRef = useRef<Space>(currentSpace);
+  const activeSpaceIdRef = useRef<string>(currentSpace.id);
   useEffect(() => {
     currentSpaceRef.current = currentSpace;
+    activeSpaceIdRef.current = currentSpace.id;
   }, [currentSpace]);
+
+  const closeSpaceOperations = () => {
+    // 1. Abort any running AI generation stream
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch (e) {}
+      abortControllerRef.current = null;
+    }
+
+    // 2. Reset active generation tasks and live coding file indicators
+    setActiveTasksCount(0);
+    setCodingFiles({});
+
+    // 3. Stop speech synthesis if speaking
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+
+    // 4. Reset inspector & drawing modes
+    setIsInspectorActive(false);
+    setInspectedElement(null);
+    setIsDrawingMode(false);
+  };
 
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -778,26 +805,26 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const loadSpaceMessages = async (spaceId: string) => {
-    // 1. Immediately reset messages & load from space-specific local storage
+    // 1. Immediately reset messages & clear current state to avoid showing messages from previous space
+    setMessages([]);
+
     let foundLocal = false;
     try {
       const localMsgsStr = localStorage.getItem(`gear_messages_${spaceId}`);
       if (localMsgsStr) {
         const localMsgs = JSON.parse(localMsgsStr);
-        if (Array.isArray(localMsgs)) {
-          setMessages(localMsgs);
-          foundLocal = true;
-        } else {
-          setMessages([]);
+        if (Array.isArray(localMsgs) && localMsgs.length > 0) {
+          if (activeSpaceIdRef.current === spaceId) {
+            setMessages(localMsgs);
+            foundLocal = true;
+          }
         }
-      } else {
-        setMessages([]);
       }
     } catch (e) {
-      setMessages([]);
+      // Local parse error
     }
 
-    // 2. Fetch from Supabase if authenticated and Supabase is configured
+    // 2. Fetch strictly from Supabase if authenticated and Supabase is configured
     if (isSupabaseConfigured && session?.user?.id && spaceId !== '0') {
       try {
         const { data, error } = await supabase
@@ -806,20 +833,28 @@ document.addEventListener('DOMContentLoaded', () => {
           .eq('space_id', spaceId)
           .order('created_at', { ascending: true });
 
+        // Ensure user hasn't switched to another space while query was in-flight
+        if (activeSpaceIdRef.current !== spaceId) return;
+
         if (error) {
           console.warn('Notice loading space messages from Supabase:', error.message);
-        } else if (data && data.length > 0) {
-          const loadedMessages: Message[] = data.map(m => ({
-            id: m.id,
-            role: m.role as 'user' | 'ai',
-            text: m.text,
-            type: m.type as any,
-            status: m.status as any
-          }));
+        } else if (data && Array.isArray(data)) {
+          // Strictly filter and map messages that belong to this space_id
+          const loadedMessages: Message[] = data
+            .filter(m => m.space_id === spaceId)
+            .map(m => ({
+              id: m.id,
+              role: m.role as 'user' | 'ai',
+              text: m.text,
+              type: m.type as any,
+              status: m.status as any
+            }));
           setMessages(loadedMessages);
           localStorage.setItem(`gear_messages_${spaceId}`, JSON.stringify(loadedMessages));
         } else if (!foundLocal) {
-          setMessages([]);
+          if (activeSpaceIdRef.current === spaceId) {
+            setMessages([]);
+          }
         }
       } catch (err: any) {
         console.warn('Notice loading space messages from Supabase (using local messages):', err?.message || err);
@@ -828,26 +863,35 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const handleSelectSpace = (space: Space) => {
-    // Save current space's messages and files locally before switching
-    if (currentSpaceRef.current.id) {
+    // 1. Immediately close all ongoing operations of current space
+    closeSpaceOperations();
+
+    // 2. Save current space state locally before switching
+    const prevSpaceId = activeSpaceIdRef.current;
+    if (prevSpaceId && prevSpaceId !== '0') {
       try {
-        localStorage.setItem(`gear_messages_${currentSpaceRef.current.id}`, JSON.stringify(messages));
-        localStorage.setItem(`gear_files_${currentSpaceRef.current.id}`, JSON.stringify(files));
+        localStorage.setItem(`gear_messages_${prevSpaceId}`, JSON.stringify(messages));
+        localStorage.setItem(`gear_files_${prevSpaceId}`, JSON.stringify(files));
       } catch (e) {}
     }
 
-    setCurrentSpace(space);
+    // 3. Clear UI state immediately to prevent any cross-space bleed
+    setMessages([]);
+    setFiles([]);
     setCodingFiles({});
+    activeSpaceIdRef.current = space.id;
+    currentSpaceRef.current = space;
+    setCurrentSpace(space);
     localStorage.setItem('gear_current_space_id', space.id);
 
-    // Isolated loading for target space
+    // 4. Isolated loading for target space
     loadSpaceFiles(space.id);
     loadSpaceMessages(space.id);
   };
 
-  // Local storage auto-sync per space
+  // Local storage auto-sync per space (only for the active space)
   useEffect(() => {
-    if (currentSpace?.id && files.length > 0) {
+    if (currentSpace?.id && currentSpace.id === activeSpaceIdRef.current && files.length > 0) {
       try {
         localStorage.setItem(`gear_files_${currentSpace.id}`, JSON.stringify(files));
       } catch (e) {}
@@ -855,7 +899,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }, [currentSpace?.id, files]);
 
   useEffect(() => {
-    if (currentSpace?.id && messages.length > 0) {
+    if (currentSpace?.id && currentSpace.id === activeSpaceIdRef.current && messages.length > 0) {
       try {
         localStorage.setItem(`gear_messages_${currentSpace.id}`, JSON.stringify(messages));
       } catch (e) {}
@@ -864,6 +908,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const syncSpaceToSupabase = async (space: Space, spaceFiles: FileData[], spaceMessages: Message[]) => {
     if (!isSupabaseConfigured || !session?.user?.id || space.id === '0') return;
+    // Strictly guard: only sync if this space is still the active space
+    if (activeSpaceIdRef.current !== space.id) return;
 
     try {
       setIsSyncing(true);
@@ -888,6 +934,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // 2. Sync Files
       for (const file of spaceFiles) {
+        if (activeSpaceIdRef.current !== space.id) return;
         const { error: fileError } = await supabase
           .from('space_files')
           .upsert({
@@ -902,17 +949,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
-      // 3. Sync Messages
-      if (spaceMessages.length > 0) {
-        const messagesToSync = spaceMessages.map(m => ({
-          id: m.id,
-          space_id: space.id,
-          role: m.role,
-          text: m.text,
-          type: m.type || 'text',
-          status: m.status || 'done',
-          created_at: new Date().toISOString()
-        }));
+      // 3. Sync Messages strictly tagged for space.id
+      if (spaceMessages.length > 0 && activeSpaceIdRef.current === space.id) {
+        const messagesToSync = spaceMessages
+          .filter(m => m.text && m.text.trim())
+          .map(m => ({
+            id: m.id,
+            space_id: space.id,
+            role: m.role,
+            text: m.text,
+            type: m.type || 'text',
+            status: m.status || 'done',
+            created_at: new Date().toISOString()
+          }));
 
         const { error: msgError } = await supabase
           .from('space_messages')
@@ -932,7 +981,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Debounced sync
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (currentSpace.id !== '0') {
+      if (currentSpace.id !== '0' && currentSpace.id === activeSpaceIdRef.current) {
         syncSpaceToSupabase(currentSpace, files, messages);
       }
     }, 2000);
@@ -942,11 +991,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const handleCreateSpace = async () => {
     if (!newSpaceName.trim()) return;
 
+    // Close any ongoing operations in previous space
+    closeSpaceOperations();
+
     // Save previous space state
-    if (currentSpaceRef.current.id) {
+    const prevId = activeSpaceIdRef.current;
+    if (prevId && prevId !== '0') {
       try {
-        localStorage.setItem(`gear_messages_${currentSpaceRef.current.id}`, JSON.stringify(messages));
-        localStorage.setItem(`gear_files_${currentSpaceRef.current.id}`, JSON.stringify(files));
+        localStorage.setItem(`gear_messages_${prevId}`, JSON.stringify(messages));
+        localStorage.setItem(`gear_files_${prevId}`, JSON.stringify(files));
       } catch (e) {}
     }
 
@@ -1102,6 +1155,8 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem(`gear_files_${newId}`, JSON.stringify(initialFiles));
     localStorage.setItem(`gear_messages_${newId}`, JSON.stringify([]));
 
+    activeSpaceIdRef.current = newId;
+    currentSpaceRef.current = newSpace;
     setCurrentSpace(newSpace);
     setFiles(initialFiles);
     setMessages([]);
@@ -1321,6 +1376,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (isSupabaseConfigured && session?.user?.id) {
       try {
+        await supabase.from('space_messages').delete().eq('space_id', id);
+        await supabase.from('space_files').delete().eq('space_id', id);
         await supabase.from('spaces').delete().eq('id', id);
       } catch (err: any) {
         console.warn('Notice deleting space from Supabase:', err?.message || err);
@@ -1328,7 +1385,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (currentSpace.id === id) {
+      closeSpaceOperations();
       const nextSpace = updatedSpaces[0] || { id: '0', name: 'NO SPACE', updatedAt: '' };
+      activeSpaceIdRef.current = nextSpace.id;
+      currentSpaceRef.current = nextSpace;
       setCurrentSpace(nextSpace);
       loadSpaceFiles(nextSpace.id);
       loadSpaceMessages(nextSpace.id);
@@ -1337,6 +1397,69 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const deleteMessage = (id: string) => {
     setMessages(messages.filter(m => m.id !== id));
+  };
+
+  const handleExportZip = async (targetSpace?: Space) => {
+    const spaceToExport = targetSpace || currentSpace;
+    try {
+      const zip = new JSZip();
+
+      // Retrieve files: if targetSpace is currentSpace, use files in state; otherwise read from storage
+      let filesToExport = files;
+      if (targetSpace && targetSpace.id !== currentSpace.id) {
+        try {
+          const stored = localStorage.getItem(`gear_files_${targetSpace.id}`);
+          if (stored) {
+            filesToExport = JSON.parse(stored);
+          }
+        } catch (e) {}
+      }
+
+      // 1. Add all project files into the zip
+      if (filesToExport && filesToExport.length > 0) {
+        filesToExport.forEach(file => {
+          const cleanPath = file.name.replace(/^\/+/, '');
+          zip.file(cleanPath, file.content || '');
+        });
+      }
+
+      // 2. Add space manifest / metadata
+      const manifest = {
+        name: spaceToExport.name,
+        description: spaceToExport.description || '',
+        exportedAt: new Date().toISOString(),
+        filesCount: filesToExport ? filesToExport.length : 0,
+        version: '1.0.0'
+      };
+      zip.file('space.json', JSON.stringify(manifest, null, 2));
+
+      // 3. Generate ZIP blob
+      const content = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+      });
+
+      // 4. Download file
+      const safeName = (spaceToExport.name || 'space')
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '-')
+        .replace(/-+/g, '-');
+      const filename = `${safeName || 'space'}.zip`;
+
+      const url = URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 1000);
+    } catch (err) {
+      console.error('Failed to export space as ZIP:', err);
+    }
   };
 
   useEffect(() => {
@@ -2630,6 +2753,11 @@ document.addEventListener('DOMContentLoaded', () => {
     setActiveTasksCount(prev => prev + 1);
     setShowPreview(false);
     const aiMessageId = generateId();
+    const targetSpaceId = currentSpace.id;
+    const targetSpaceName = currentSpace.name;
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       const history = messages.reduce((acc: { role: "user" | "model"; parts: { text: string }[] }[], m) => {
@@ -2642,9 +2770,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         return acc;
       }, []);
-      
-      const targetSpaceId = currentSpace.id;
-      const targetSpaceName = currentSpace.name;
 
       const stream = await generateCodeResponseStream(
         currentInput, 
@@ -2657,24 +2782,39 @@ document.addEventListener('DOMContentLoaded', () => {
       );
       let fullResponse = "";
       
+      // If user aborted or switched space while waiting for response:
+      if (controller.signal.aborted || activeSpaceIdRef.current !== targetSpaceId) {
+        return;
+      }
+
       // Add initial AI message
-      setMessages(prev => [...prev, {
-        id: aiMessageId,
-        role: 'ai',
-        text: '',
-        status: 'generating'
-      }]);
+      setMessages(prev => {
+        if (activeSpaceIdRef.current !== targetSpaceId) return prev;
+        return [...prev, {
+          id: aiMessageId,
+          role: 'ai',
+          text: '',
+          status: 'generating'
+        }];
+      });
 
       for await (const chunk of stream) {
+        if (controller.signal.aborted || activeSpaceIdRef.current !== targetSpaceId) {
+          break;
+        }
+
         const chunkText = chunk.text;
         if (!chunkText) continue;
         
         fullResponse += chunkText;
         
         // Update Chat Text directly with live streaming response
-        setMessages(prev => prev.map(m => 
-          m.id === aiMessageId ? { ...m, text: fullResponse, status: 'generating' } : m
-        ));
+        setMessages(prev => {
+          if (activeSpaceIdRef.current !== targetSpaceId) return prev;
+          return prev.map(m => 
+            m.id === aiMessageId ? { ...m, text: fullResponse, status: 'generating' } : m
+          );
+        });
 
         // 2. Incremental File Parsing (Full files & Surgical Patches)
         const codeBlockRegex = /```(\w+)?(?::([a-zA-Z0-9._\-/]+))?\n([\s\S]*?)(?:```|$)/g;
@@ -2705,7 +2845,7 @@ document.addEventListener('DOMContentLoaded', () => {
           lastFile = fileName;
         }
 
-        if (updates.length > 0) {
+        if (updates.length > 0 && activeSpaceIdRef.current === targetSpaceId) {
           setFiles(prev => {
             const next = [...prev];
             updates.forEach(update => {
@@ -2733,6 +2873,10 @@ document.addEventListener('DOMContentLoaded', () => {
             setCodingFiles(prev => ({ ...prev, [aiMessageId]: lastFile }));
           }
         }
+      }
+
+      if (controller.signal.aborted || activeSpaceIdRef.current !== targetSpaceId) {
+        return;
       }
 
       setCodingFiles(prev => {
@@ -2786,6 +2930,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
     } catch (error: any) {
+      if (controller.signal.aborted || activeSpaceIdRef.current !== targetSpaceId) {
+        return;
+      }
+
       console.error("Error generating code:", error);
       
       let errorMessage = "An unexpected error occurred. Please try again.";
@@ -2813,6 +2961,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       setMessages(prev => {
+        if (activeSpaceIdRef.current !== targetSpaceId) return prev;
         const exists = prev.some(m => m.id === aiMessageId);
         if (exists) {
           return prev.map(m => m.id === aiMessageId ? { ...m, text: errorMessage, isError: true, status: 'done' } : m);
@@ -2826,6 +2975,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }];
       });
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       setActiveTasksCount(prev => Math.max(0, prev - 1));
       setImages([]);
     }
@@ -3167,7 +3319,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ) : (
           <div className="flex flex-col h-screen bg-[#0A0A0A] text-white font-sans overflow-hidden">
             {/* Top Header */}
-            {['dashboard', 'projects', 'features', 'solutions', 'pricing', 'about', 'overview', 'teams', 'market', 'account'].includes(currentPage) ? (
+            {['dashboard', 'projects', 'spaces', 'features', 'solutions', 'pricing', 'about', 'overview', 'teams', 'market', 'account'].includes(currentPage) ? (
               <header className="h-12 border-b border-[#262626] flex items-center justify-between px-4 bg-[#0F0F0F] z-10">
                 <div className="flex items-center gap-2">
                   <button 
@@ -3188,9 +3340,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 {/* Left controls: Back button + Mode icons (>_ </ > ▶ ⚙) */}
                 <div className="flex items-center gap-2">
                   <button 
-                    onClick={() => setCurrentPage('dashboard')}
-                    className="w-7 h-7 rounded-full bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] text-gray-300 hover:text-white flex items-center justify-center transition-all shadow-sm"
-                    title="Back to Dashboard"
+                    onClick={() => {
+                      closeSpaceOperations();
+                      setCurrentPage('spaces');
+                    }}
+                    className="w-7 h-7 rounded-full bg-[#1A1A1A] hover:bg-[#262626] border border-[#333] text-gray-300 hover:text-white flex items-center justify-center transition-all shadow-sm cursor-pointer"
+                    title="Back to Spaces"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
                   </button>
@@ -3328,18 +3483,11 @@ document.addEventListener('DOMContentLoaded', () => {
                   </button>
 
                   <button 
-                    onClick={() => {
-                      const blob = new Blob([JSON.stringify({ space: currentSpace, files }, null, 2)], { type: 'application/json' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `${currentSpace.name.toLowerCase().replace(/\s+/g, '-')}-export.json`;
-                      a.click();
-                    }}
+                    onClick={() => handleExportZip()}
                     className="px-2.5 py-1 bg-[#141414] hover:bg-[#1A1A1A] border border-[#262626] text-gray-300 hover:text-white rounded-lg text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-                    title="Export Space Code JSON"
+                    title="Export Space Code (ZIP)"
                   >
-                    <Upload className="w-3.5 h-3.5 text-neutral-300" />
+                    <Download className="w-3.5 h-3.5 text-neutral-300" />
                     <span>Export</span>
                   </button>
 
@@ -3503,17 +3651,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             <button 
                               onClick={() => {
                                 setIsMenuOpen(false);
-                                const blob = new Blob([JSON.stringify({ space: currentSpace, files }, null, 2)], { type: 'application/json' });
-                                const url = URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = `${currentSpace.name.toLowerCase().replace(/\s+/g, '-')}-export.json`;
-                                a.click();
+                                handleExportZip();
                               }}
                               className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-neutral-300 hover:text-white hover:bg-[#1A1A1A] transition-all cursor-pointer"
                             >
                               <Download className="w-3.5 h-3.5 text-neutral-400" />
-                              <span>Export Space JSON</span>
+                              <span>Export Space (ZIP)</span>
                             </button>
 
                             <div className="h-[1px] bg-[#222] my-1" />
@@ -3659,11 +3802,13 @@ document.addEventListener('DOMContentLoaded', () => {
               deleteSpace={deleteSpace}
               aiSettings={aiSettings}
             />
-          ) : currentPage === 'projects' ? (
+          ) : (currentPage === 'projects' || currentPage === 'spaces') ? (
             <ProjectsPage
               spaces={spaces}
               currentSpace={currentSpace}
               setCurrentSpace={setCurrentSpace}
+              onSelectSpace={handleSelectSpace}
+              onExportZip={handleExportZip}
               loadSpaceFiles={loadSpaceFiles}
               loadSpaceMessages={loadSpaceMessages}
               setCurrentPage={setCurrentPage}
@@ -3676,6 +3821,7 @@ document.addEventListener('DOMContentLoaded', () => {
               spaces={spaces}
               currentSpace={currentSpace}
               setCurrentSpace={setCurrentSpace}
+              onSelectSpace={handleSelectSpace}
               loadSpaceFiles={loadSpaceFiles}
               loadSpaceMessages={loadSpaceMessages}
               setCurrentPage={setCurrentPage}

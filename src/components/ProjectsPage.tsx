@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { Search, Plus, Box, Trash2, ListFilter, Pin, MoreVertical, Users, AlertCircle } from 'lucide-react';
+import { Search, Plus, Box, Trash2, ListFilter, Pin, MoreVertical, Users, AlertCircle, Download } from 'lucide-react';
 import { Space } from '../types';
 
 interface ProjectsPageProps {
   spaces: Space[];
   currentSpace: Space;
   setCurrentSpace: (space: Space) => void;
+  onSelectSpace?: (space: Space) => void;
+  onExportZip?: (space: Space) => void;
   loadSpaceFiles: (spaceId: string) => void;
   loadSpaceMessages: (spaceId: string) => void;
   setCurrentPage: (page: string) => void;
@@ -18,6 +20,8 @@ export default function ProjectsPage({
   spaces,
   currentSpace,
   setCurrentSpace,
+  onSelectSpace,
+  onExportZip,
   loadSpaceFiles,
   loadSpaceMessages,
   setCurrentPage,
@@ -128,9 +132,13 @@ export default function ProjectsPage({
                 <div
                   key={space.id}
                   onClick={() => {
-                    setCurrentSpace(space);
-                    loadSpaceFiles(space.id);
-                    loadSpaceMessages(space.id);
+                    if (onSelectSpace) {
+                      onSelectSpace(space);
+                    } else {
+                      setCurrentSpace(space);
+                      loadSpaceFiles(space.id);
+                      loadSpaceMessages(space.id);
+                    }
                     setCurrentPage('editor');
                     setShowPreview(true);
                   }}
@@ -179,14 +187,27 @@ export default function ProjectsPage({
                             </button>
                             <button 
                               onClick={(e) => handlePushToTeam(space.name, e)}
-                              className="w-full text-left px-3 py-1.5 text-xs text-white hover:bg-neutral-800 rounded-lg flex items-center gap-2"
+                              className="w-full text-left px-3 py-1.5 text-xs text-white hover:bg-neutral-800 rounded-lg flex items-center gap-2 cursor-pointer"
                             >
                               <Users className="w-3.5 h-3.5" />
                               <span>Push to Team</span>
                             </button>
+                            {onExportZip && (
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveMenuId(null);
+                                  onExportZip(space);
+                                }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-lg flex items-center gap-2 cursor-pointer"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Export (ZIP)</span>
+                              </button>
+                            )}
                             <button 
                               onClick={(e) => deleteSpace(space.id, e)}
-                              className="w-full text-left px-3 py-1.5 text-xs text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg flex items-center gap-2"
+                              className="w-full text-left px-3 py-1.5 text-xs text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg flex items-center gap-2 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                               <span>Delete Space</span>
